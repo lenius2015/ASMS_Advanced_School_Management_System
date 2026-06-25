@@ -649,7 +649,7 @@ CREATE TABLE system_settings (
 ) ENGINE=InnoDB;
 
 INSERT INTO system_settings (setting_key, setting_value) VALUES
-('school_name', 'Demo Secondary School'),
+('school_name', 'OMUNJU PRIMARY AND SECONDARY SCHOOLS'),
 ('school_motto', 'Knowledge, Discipline, Excellence'),
 ('school_logo_path', 'assets/img/logo.png'),
 ('current_academic_year_id', '1'),

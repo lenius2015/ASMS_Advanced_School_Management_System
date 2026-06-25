@@ -14,7 +14,7 @@ $currentRole = current_role();
 
 // Only allow viewing own profile unless authorized
 $isOwnProfile = ($userId === $currentUserId);
-$canViewOthers = in_array($currentRole, ['director', 'system_admin', 'head_of_school', 'academic_officer']);
+$canViewOthers = in_array($currentRole, ['director', 'system_admin', 'head_of_school', 'academic_officer', 'class_teacher', 'subject_teacher']);
 
 if (!$isOwnProfile && !$canViewOthers) {
     flash_set('error', 'You do not have permission to view that profile.');

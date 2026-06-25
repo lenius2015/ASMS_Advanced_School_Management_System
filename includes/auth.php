@@ -51,9 +51,11 @@ function role_home_url(string $role): string
     $map = [
         'director'        => '/director/dashboard.php',
         'system_admin'    => '/director/dashboard.php',
+        'school_board'    => '/director/board_dashboard.php',
         'head_of_school'  => '/head_of_school/dashboard.php',
+        'department_head' => '/head_of_school/dashboard.php',
         'academic_officer'=> '/academic/dashboard.php',
-        'teacher'         => '/teacher/dashboard.php',
+        'subject_teacher' => '/teacher/dashboard.php',
         'class_teacher'   => '/class_teacher/dashboard.php',
         'student'         => '/student/dashboard.php',
         'parent'          => '/parent/dashboard.php',

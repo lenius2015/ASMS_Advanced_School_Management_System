@@ -1,4 +1,4 @@
-<?php
+ <?php
 /**
  * academic/classes.php
  * Manage classes (level + stream), assign class teachers, link
@@ -40,8 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     if ($classId > 0) {
         try {
             // Check if class has students
-            $count = (int) $pdo->prepare("SELECT COUNT(*) FROM students WHERE class_id = :id")->execute(['id' => $classId]);
-            // Use direct query for count
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM students WHERE class_id = :id");
             $stmt->execute(['id' => $classId]);
             $studentCount = (int) $stmt->fetchColumn();
@@ -134,7 +132,7 @@ $classes = $pdo->query(
 
 $classLevels = $pdo->query('SELECT * FROM class_levels ORDER BY sort_order')->fetchAll();
 $subjects = $pdo->query('SELECT * FROM subjects WHERE is_active = 1 ORDER BY subject_name')->fetchAll();
-$classTeachers = $pdo->query("SELECT user_id, first_name, last_name FROM users WHERE role_id = (SELECT role_id FROM roles WHERE role_name='class_teacher') AND is_active=1")->fetchAll();
+$classTeachers = $pdo->query("SELECT user_id, first_name, last_name FROM users WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('class_teacher','subject_teacher','department_head')) AND is_active=1 ORDER BY first_name")->fetchAll();
 $subjectTeachers = $pdo->query("SELECT user_id, first_name, last_name FROM users WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('subject_teacher','class_teacher')) AND is_active=1 ORDER BY first_name")->fetchAll();
 
 $viewClassId = (int) ($_GET['view'] ?? 0);
@@ -227,19 +225,19 @@ require APP_ROOT . '/includes/header.php';
                         </td>
                         <td><?= (int) $c['capacity'] ?></td>
                         <td class="text-center">
-                            <div class="btn-group btn-group-sm">
-                                <a href="?view=<?= (int) $c['class_id'] ?>" class="btn btn-outline-primary" title="Manage Subjects & View Details"><i class="fa fa-eye"></i></a>
-                                <a href="?view=<?= (int) $c['class_id'] ?>&tab=students" class="btn btn-outline-info" title="View Student Roster"><i class="fa fa-users"></i></a>
-                                <a href="<?= e(app_url('/academic/reports.php')) ?>?class_id=<?= (int) $c['class_id'] ?>" class="btn btn-outline-success" title="Class Reports"><i class="fa fa-chart-bar"></i></a>
+                            <div class="d-flex justify-content-center gap-1">
+                                <a href="?view=<?= (int) $c['class_id'] ?>" class="btn btn-sm btn-outline-primary" title="Manage Subjects & View Details"><i class="fa fa-eye"></i></a>
+                                <a href="?view=<?= (int) $c['class_id'] ?>&tab=students" class="btn btn-sm btn-outline-info" title="View Student Roster"><i class="fa fa-users"></i></a>
+                                <a href="<?= e(app_url('/academic/reports.php')) ?>?class_id=<?= (int) $c['class_id'] ?>" class="btn btn-sm btn-outline-success" title="Class Reports"><i class="fa fa-chart-bar"></i></a>
                                 <?php if ((int) $c['student_count'] === 0): ?>
                                     <form method="POST" class="d-inline" data-confirm="Permanently delete this class? This cannot be undone.">
                                         <?php csrf_field(); ?>
                                         <input type="hidden" name="action" value="delete_class">
                                         <input type="hidden" name="class_id" value="<?= (int) $c['class_id'] ?>">
-                                        <button type="submit" class="btn btn-outline-danger" title="Delete Class"><i class="fa fa-trash"></i></button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Class"><i class="fa fa-trash"></i></button>
                                     </form>
                                 <?php else: ?>
-                                    <button class="btn btn-outline-danger" disabled title="Cannot delete: class has students"><i class="fa fa-trash"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger" disabled title="Cannot delete: class has students"><i class="fa fa-trash"></i></button>
                                 <?php endif; ?>
                             </div>
                         </td>

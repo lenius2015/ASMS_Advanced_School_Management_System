@@ -234,9 +234,16 @@ function render_avatar(?string $photoPath, string $firstName, string $lastName, 
     $initials = e(mb_substr($firstName, 0, 1) . mb_substr($lastName, 0, 1));
     $style = "width:{$size}px;height:{$size}px;font-size:" . round($size * 0.45) . "px;";
 
-    if ($photoPath && file_exists($photoPath)) {
-        $url = e(app_url($photoPath));
-        return "<img src=\"{$url}\" alt=\"{$initials}\" class=\"rounded-circle object-fit-cover {$classes}\" style=\"{$style}\">";
+    if ($photoPath) {
+        $fullPath = $photoPath;
+        // Handle both absolute and relative paths
+        if (!str_starts_with($photoPath, '/') && !str_contains($photoPath, ':\\')) {
+            $fullPath = APP_ROOT . '/' . $photoPath;
+        }
+        if (file_exists($fullPath)) {
+            $url = e(app_url($photoPath));
+            return "<img src=\"{$url}\" alt=\"{$initials}\" class=\"rounded-circle object-fit-cover {$classes}\" style=\"{$style}\">";
+        }
     }
 
     return "<div class=\"rounded-circle bg-navy text-white d-inline-flex align-items-center justify-content-center fw-semibold {$classes}\" style=\"{$style}\">{$initials}</div>";

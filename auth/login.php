@@ -60,7 +60,7 @@ $sessionExpired = isset($_GET['expired']);
     <div class="text-center">
       <div class="asms-logo-mark"><i class="fa fa-graduation-cap"></i></div>
       <h1 class="h4 mb-1"><?= e($schoolName) ?></h1>
-      <p class="text-muted small mb-4">Advanced School Management System</p>
+      <p class="text-muted small mb-4">OMUNJU PRIMARY AND SECONDARY SCHOOLS</p>
     </div>
 
     <?php if ($sessionExpired): ?>

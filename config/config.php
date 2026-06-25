@@ -35,7 +35,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // ---- Global constants -------------------------------------------------
-define('APP_NAME', 'Advanced School Management System');
+define('APP_NAME', 'OMUNJU PRIMARY AND SECONDARY SCHOOLS');
 define('APP_ROOT', dirname(__DIR__));               // absolute filesystem path to /asms
 // Compute the base URL by trimming the document root from the script filename.
 // This ensures APP_BASE_URL always points to the application root regardless

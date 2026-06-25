@@ -2,8 +2,7 @@
 /**
  * profile/edit.php
  * Universal profile editing page.
- * Allows users to update their email, phone, and profile picture only.
- * Sensitive data (name, role, username, etc.) is read-only.
+ * Allows users to update their first name, last name, email, phone, and profile picture.
  */
 require_once __DIR__ . '/../config/config.php';
 require_login();
@@ -23,21 +22,27 @@ $success = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_profile') {
     csrf_verify();
 
-    $email = trim($_POST['email'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
+    $firstName = trim($_POST['first_name'] ?? '');
+    $lastName  = trim($_POST['last_name'] ?? '');
+    $email     = trim($_POST['email'] ?? '');
+    $phone     = trim($_POST['phone'] ?? '');
 
-    // Validate email format
-    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    // Validate names
+    if ($firstName === '' || $lastName === '') {
+        $error = 'First name and last name are required.';
+    } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
     } else {
         try {
             $pdo->beginTransaction();
 
-            // Update basic info
+            // Update basic info including name fields
             $stmt = $pdo->prepare(
-                'UPDATE users SET email = :email, phone = :phone WHERE user_id = :uid'
+                'UPDATE users SET first_name = :fn, last_name = :ln, email = :email, phone = :phone WHERE user_id = :uid'
             );
             $stmt->execute([
+                'fn'    => $firstName,
+                'ln'    => $lastName,
                 'email' => $email ?: null,
                 'phone' => $phone ?: null,
                 'uid'   => $userId,
@@ -59,16 +64,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
                 }
 
                 // Delete old photo if exists
-                if ($user['photo_path'] && file_exists($user['photo_path'])) {
-                    @unlink($user['photo_path']);
+                if ($user['photo_path'] && file_exists(APP_ROOT . '/' . $user['photo_path'])) {
+                    @unlink(APP_ROOT . '/' . $user['photo_path']);
                 }
 
                 $filePath = store_upload($file, $targetDir, 'user_' . $userId);
+                // Convert absolute filesystem path to relative path for DB storage
+                $relativePath = str_replace(APP_ROOT . '/', '', $filePath);
                 $pdo->prepare('UPDATE users SET photo_path = :path WHERE user_id = :uid')
-                    ->execute(['path' => $filePath, 'uid' => $userId]);
+                    ->execute(['path' => $relativePath, 'uid' => $userId]);
 
                 // Update session for immediate display
-                $_SESSION['photo_path'] = $filePath;
+                $_SESSION['photo_path'] = $relativePath;
             }
 
             $pdo->commit();
@@ -123,8 +130,8 @@ require APP_ROOT . '/includes/header.php';
               <div class="text-muted small">Click the camera icon to change your profile picture. JPG, PNG, GIF, WebP (max 5MB)</div>
             </div>
 
-            <!-- Read-Only Info -->
-            <h6 class="text-muted small text-uppercase border-bottom pb-2 mb-3">Account Information (Read-only)</h6>
+            <!-- Personal Info -->
+            <h6 class="text-muted small text-uppercase border-bottom pb-2 mb-3">Account Information</h6>
             <div class="row g-3 mb-4">
               <div class="col-md-6">
                 <label class="form-label">Username</label>
@@ -135,25 +142,25 @@ require APP_ROOT . '/includes/header.php';
                 <input type="text" class="form-control" value="<?= e(ucfirst(str_replace('_', ' ', $user['role_name']))) ?>" disabled>
               </div>
               <div class="col-md-6">
-                <label class="form-label">First Name</label>
-                <input type="text" class="form-control" value="<?= e($user['first_name']) ?>" disabled>
+                <label class="form-label">First Name <span class="required-mark">*</span></label>
+                <input type="text" name="first_name" class="form-control" value="<?= e($user['first_name']) ?>" required>
               </div>
               <div class="col-md-6">
-                <label class="form-label">Last Name</label>
-                <input type="text" class="form-control" value="<?= e($user['last_name']) ?>" disabled>
+                <label class="form-label">Last Name <span class="required-mark">*</span></label>
+                <input type="text" name="last_name" class="form-control" value="<?= e($user['last_name']) ?>" required>
               </div>
             </div>
 
-            <!-- Editable Fields -->
-            <h6 class="text-muted small text-uppercase border-bottom pb-2 mb-3">Communication Details (Editable)</h6>
+            <!-- Contact Details -->
+            <h6 class="text-muted small text-uppercase border-bottom pb-2 mb-3">Communication Details</h6>
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="form-label">Email <span class="text-muted">(Communication)</span></label>
+                <label class="form-label">Email <span class="text-muted">(optional)</span></label>
                 <input type="email" name="email" class="form-control" value="<?= e($user['email'] ?? '') ?>" placeholder="Enter email address">
                 <div class="form-text">Used for notifications and password recovery.</div>
               </div>
               <div class="col-md-6">
-                <label class="form-label">Phone <span class="text-muted">(Communication)</span></label>
+                <label class="form-label">Phone <span class="text-muted">(optional)</span></label>
                 <input type="text" name="phone" class="form-control" value="<?= e($user['phone'] ?? '') ?>" placeholder="Enter phone number">
                 <div class="form-text">Used for SMS alerts and contact.</div>
               </div>

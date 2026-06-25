@@ -311,7 +311,7 @@ require APP_ROOT . '/includes/header.php';
                 <div class="card-footer bg-white border-top-0 pt-0">
                     <div class="d-flex gap-1">
                         <a href="?view=<?= (int) $t['staff_id'] ?>" class="btn btn-sm btn-outline-primary flex-fill"><i class="fa fa-eye me-1"></i> View Subjects</a>
-                        <a href="<?= e(app_url('/director/staff_detail.php?id=' . (int) $t['staff_id'])) ?>" class="btn btn-sm btn-outline-info flex-fill"><i class="fa fa-id-card me-1"></i> Full Profile</a>
+                        <a href="<?= e(app_url('/profile/view.php?id=' . (int) $t['user_id'])) ?>" class="btn btn-sm btn-outline-info flex-fill"><i class="fa fa-id-card me-1"></i> Full Profile</a>
                     </div>
                 </div>
             </div>
@@ -329,7 +329,7 @@ require APP_ROOT . '/includes/header.php';
 
 <!-- Teacher Detail View -->
 <?php if ($viewTeacherId > 0 && $teacherInfo): ?>
-<div class="card mb-4">
+<div id="teacherSubjectsSection" class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fa fa-list text-gold me-2"></i>Subject Assignments: <?= e($teacherInfo['first_name'] . ' ' . $teacherInfo['last_name']) ?></span>
         <a href="<?= e(app_url('/academic/teachers.php')) ?>" class="btn btn-sm btn-outline-secondary"><i class="fa fa-times"></i> Close</a>
@@ -339,6 +339,7 @@ require APP_ROOT . '/includes/header.php';
         <form method="POST" action="<?= e(app_url('/academic/classes.php')) ?>" class="row g-2 mb-3 p-3 bg-light rounded">
             <?php csrf_field(); ?>
             <input type="hidden" name="action" value="assign_subject">
+            <input type="hidden" name="redirect" value="<?= e(app_url('/academic/teachers.php?view=' . $viewTeacherId)) ?>">
             <div class="col-md-4">
                 <select name="class_id" class="form-select form-select-sm" required>
                     <option value="">-- Select Class --</option>
@@ -362,7 +363,7 @@ require APP_ROOT . '/includes/header.php';
                 </span>
             </div>
             <div class="col-md-2">
-                <button class="btn btn-sm btn-primary w-100"><i class="fa fa-plus"></i> Assign</button>
+                <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fa fa-plus"></i> Assign</button>
             </div>
         </form>
 
@@ -456,4 +457,14 @@ require APP_ROOT . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<?php if ($viewTeacherId > 0 && $teacherInfo): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var section = document.getElementById('teacherSubjectsSection');
+    if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+});
+</script>
+<?php endif; ?>
 <?php require APP_ROOT . '/includes/footer.php'; ?>
