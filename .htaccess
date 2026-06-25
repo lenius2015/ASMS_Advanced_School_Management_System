@@ -1,0 +1,40 @@
+# =============================================================================
+# ASMS - Root .htaccess (Apache)
+# Security hardening for a shared-hosting / classic LAMP deployment.
+# =============================================================================
+
+# Disable directory listing
+Options -Indexes
+
+# Protect sensitive file types from direct browser access
+<FilesMatch "\.(sql|log|env|md)$">
+    Require all denied
+</FilesMatch>
+
+# Block access to the config and includes folders from direct URL access
+# (they are only ever included server-side via PHP require/include)
+RewriteEngine On
+RewriteRule ^config/ - [F,L]
+RewriteRule ^includes/ - [F,L]
+RewriteRule ^database/ - [F,L]
+
+# Prevent execution of PHP inside the uploads directory (defense in depth
+# against someone uploading a disguised .php file)
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Force HTTPS in production (uncomment once you have an SSL certificate)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Default character set
+AddDefaultCharset UTF-8

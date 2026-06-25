@@ -1,0 +1,6 @@
+"" 
+[25-Jun-2026 03:11:13 Africa/Dar_es_Salaam] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'n.read_at' in 'where clause' in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php:142
+Stack trace:
+#0 C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php(142): PDO->query('SELECT r.role_n...')
+#1 {main}
+  thrown in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php on line 142

@@ -1,0 +1,9 @@
+# Prevent any uploaded file from ever being executed as a script,
+# regardless of its claimed extension. Defense in depth for file uploads.
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|pht)$">
+    Require all denied
+</FilesMatch>
+Options -Indexes -ExecCGI
