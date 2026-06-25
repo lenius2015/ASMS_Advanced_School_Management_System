@@ -4,3 +4,5 @@ Stack trace:
 #0 C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php(142): PDO->query('SELECT r.role_n...')
 #1 {main}
   thrown in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php on line 142
+[25-Jun-2026 13:32:51 Africa/Dar_es_Salaam] PHP Parse error:  syntax error, unexpected token "<", expecting end of file in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\includes\fee_functions.php on line 1224
+[25-Jun-2026 13:32:53 Africa/Dar_es_Salaam] PHP Parse error:  syntax error, unexpected token "<", expecting end of file in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\includes\fee_functions.php on line 1224

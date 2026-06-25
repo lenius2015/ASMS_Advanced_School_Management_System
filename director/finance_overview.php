@@ -1,107 +1,191 @@
 <?php
 /**
  * director/finance_overview.php
- * Director's read access to financial summaries across fee collection,
- * payroll, and budget vs expenses — without bursar's transactional tools.
+ * Director-level financial overview with cross-year comparisons
+ * and comprehensive reporting access.
  */
 require_once __DIR__ . '/../config/config.php';
-require_role(['director', 'system_admin', 'school_board']);
+require_role(['director', 'system_admin', 'head_of_school']);
+require_once __DIR__ . '/../includes/fee_functions.php';
 
 $pdo = get_db_connection();
 $period = get_current_period($pdo);
 
-$financeStmt = $pdo->prepare(
-    "SELECT COALESCE(SUM(total_amount),0) AS billed, COALESCE(SUM(amount_paid),0) AS collected, COALESCE(SUM(balance),0) AS outstanding
-     FROM invoices WHERE term_id = :term"
-);
-$financeStmt->execute(['term' => $period['term_id']]);
-$finance = $financeStmt->fetch();
+// Get all academic years for selection
+$years = $pdo->query("SELECT * FROM academic_years ORDER BY start_date DESC")->fetchAll();
+$selectedYearId = (int) ($_GET['year_id'] ?? $period['year_id']);
+$selectedTermId = (int) ($_GET['term_id'] ?? $period['term_id']);
 
-$byCategory = $pdo->prepare(
-    "SELECT fc.category_name, COALESCE(SUM(ii.amount),0) AS total
-     FROM invoice_items ii
-     JOIN fee_categories fc ON fc.fee_category_id = ii.fee_category_id
-     JOIN invoices i ON i.invoice_id = ii.invoice_id
-     WHERE i.term_id = :term
-     GROUP BY fc.category_name ORDER BY total DESC"
-);
-$byCategory->execute(['term' => $period['term_id']]);
-$categoryRows = $byCategory->fetchAll();
+// Get KPIs for selected term
+$kpis = get_bursar_dashboard_kpis($pdo, $selectedTermId);
+$yearlyTrend = get_monthly_collection_trend($pdo, 12);
+$outstandingByClass = get_outstanding_by_class($pdo, $selectedTermId);
 
-$monthlyCollections = $pdo->query(
-    "SELECT DATE_FORMAT(payment_date, '%Y-%m') AS month, SUM(amount) AS total
-     FROM payments
-     WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-     GROUP BY month ORDER BY month"
-)->fetchAll();
+// City/region breakdowns
+$classLevels = $pdo->query('SELECT * FROM class_levels ORDER BY sort_order')->fetchAll();
 
-$payrollTotal = $pdo->query(
-    "SELECT COALESCE(SUM(net_pay),0) AS total FROM payslips ps
-     JOIN payroll_runs pr ON pr.payroll_run_id = ps.payroll_run_id
-     WHERE pr.pay_period_month = MONTH(CURDATE()) AND pr.pay_period_year = YEAR(CURDATE())"
-)->fetch()['total'];
+// Get year-over-year comparison
+$yearComparison = [];
+foreach ($years as $y) {
+    $stmt = $pdo->prepare(
+        "SELECT COALESCE(SUM(i.total_amount),0) AS total_billed,
+                COALESCE(SUM(i.amount_paid),0) AS total_collected,
+                COALESCE(SUM(i.balance),0) AS total_outstanding
+         FROM invoices i
+         JOIN terms t ON t.term_id = i.term_id
+         WHERE t.year_id = :year"
+    );
+    $stmt->execute(['year' => $y['year_id']]);
+    $yearComparison[$y['year_name']] = $stmt->fetch();
+}
 
-$budgetVsExpense = $pdo->query(
-    "SELECT d.department_name, COALESCE(SUM(b.allocated_amount),0) AS allocated, COALESCE(exp.spent,0) AS spent
-     FROM departments d
-     LEFT JOIN budgets b ON b.department_id = d.department_id
-     LEFT JOIN (
-        SELECT department_id, SUM(amount) AS spent FROM expenses WHERE status IN ('approved','paid') GROUP BY department_id
-     ) exp ON exp.department_id = d.department_id
-     GROUP BY d.department_id"
-)->fetchAll();
-
-$pageTitle = 'Financial Overview';
+$pageTitle = 'Finance Overview';
 require APP_ROOT . '/includes/header.php';
 ?>
 
-<h1 class="h3 mb-4">Financial Overview</h1>
+<div class="welcome-section animate-fade-in">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h1 class="h3 mb-1">Finance Overview <span class="badge bg-gold ms-2">Executive</span></h1>
+      <p class="mb-0">Complete financial oversight &middot; <?= e(date('l, d F Y')) ?></p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="<?= e(app_url('/bursar/reports.php')) ?>" class="btn btn-outline-light btn-sm"><i class="fa fa-file-alt me-1"></i> Reports</a>
+      <button class="btn btn-outline-light btn-sm" onclick="window.print()"><i class="fa fa-print"></i></button>
+    </div>
+  </div>
+</div>
 
+<!-- Period Selector -->
+<div class="card mb-4 animate-fade-in animate-delay-1">
+  <div class="card-body">
+    <form method="GET" class="row g-2 align-items-center">
+      <div class="col-auto"><label class="form-label mb-0 fw-semibold">Period:</label></div>
+      <div class="col-md-3">
+        <select name="year_id" class="form-select" onchange="this.form.submit()">
+          <?php foreach ($years as $y): ?>
+            <option value="<?= (int) $y['year_id'] ?>" <?= $selectedYearId === (int) $y['year_id'] ? 'selected' : '' ?>>
+              <?= e($y['year_name']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="term_id" class="form-select" onchange="this.form.submit()">
+          <?php 
+          $terms = $pdo->prepare("SELECT t.*, y.year_name FROM terms t JOIN academic_years y ON y.year_id = t.year_id WHERE t.year_id = :yid ORDER BY t.start_date DESC");
+          $terms->execute(['yid' => $selectedYearId]);
+          foreach ($terms as $t): ?>
+            <option value="<?= (int) $t['term_id'] ?>" <?= $selectedTermId === (int) $t['term_id'] ? 'selected' : '' ?>>
+              <?= e($t['year_name'] . ' - ' . $t['term_name']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Executive KPI Cards -->
 <div class="row g-3 mb-4">
-  <div class="col-md-3 col-sm-6">
-    <div class="asms-kpi-card accent-navy"><div class="kpi-label">Total Billed (Term)</div><div class="kpi-value"><?= format_money($finance['billed']) ?></div></div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-1">
+    <div class="asms-kpi-card accent-navy">
+      <i class="fa fa-file-invoice kpi-icon"></i>
+      <div class="kpi-label">Total Billed</div>
+      <div class="kpi-value"><?= format_money($kpis['total_expected']) ?></div>
+      <div class="kpi-sub"><?= $kpis['billed_students'] ?> students</div>
+    </div>
   </div>
-  <div class="col-md-3 col-sm-6">
-    <div class="asms-kpi-card accent-green"><div class="kpi-label">Collected</div><div class="kpi-value"><?= format_money($finance['collected']) ?></div></div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-2">
+    <div class="asms-kpi-card accent-green">
+      <i class="fa fa-check-circle kpi-icon"></i>
+      <div class="kpi-label">Collected</div>
+      <div class="kpi-value"><?= format_money($kpis['total_collected']) ?></div>
+      <div class="kpi-sub"><?= $kpis['collection_rate'] ?>% rate</div>
+    </div>
   </div>
-  <div class="col-md-3 col-sm-6">
-    <div class="asms-kpi-card accent-red"><div class="kpi-label">Outstanding</div><div class="kpi-value"><?= format_money($finance['outstanding']) ?></div></div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-3">
+    <div class="asms-kpi-card accent-red">
+      <i class="fa fa-exclamation-triangle kpi-icon"></i>
+      <div class="kpi-label">Outstanding</div>
+      <div class="kpi-value"><?= format_money($kpis['total_outstanding']) ?></div>
+      <div class="kpi-sub"><?= $kpis['overdue_count'] ?> overdue</div>
+    </div>
   </div>
-  <div class="col-md-3 col-sm-6">
-    <div class="asms-kpi-card"><div class="kpi-label">Payroll (This Month)</div><div class="kpi-value"><?= format_money($payrollTotal) ?></div></div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-4">
+    <div class="asms-kpi-card accent-blue">
+      <i class="fa fa-calendar-day kpi-icon"></i>
+      <div class="kpi-label">Today</div>
+      <div class="kpi-value"><?= format_money($kpis['today_collected']) ?></div>
+      <div class="kpi-sub"><?= $kpis['today_count'] ?> payments</div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-5">
+    <div class="asms-kpi-card accent-gold">
+      <i class="fa fa-calendar-alt kpi-icon"></i>
+      <div class="kpi-label">This Month</div>
+      <div class="kpi-value"><?= format_money($kpis['month_collected']) ?></div>
+      <div class="kpi-sub"><?= $kpis['month_count'] ?> payments</div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-md-4 col-6 animate-fade-in animate-delay-6">
+    <div class="asms-kpi-card accent-purple">
+      <i class="fa fa-clock kpi-icon"></i>
+      <div class="kpi-label">Overdue</div>
+      <div class="kpi-value"><?= format_money($kpis['overdue_amount']) ?></div>
+      <div class="kpi-sub"><?= $kpis['overdue_inv_count'] ?> invoices</div>
+    </div>
   </div>
 </div>
 
-<div class="row g-4 mb-4">
-  <div class="col-lg-6">
+<!-- Charts -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-8 animate-fade-in animate-delay-2">
     <div class="card h-100">
-      <div class="card-header">Collections by Fee Category (Current Term)</div>
-      <div class="card-body"><canvas id="categoryChart" height="220"></canvas></div>
+      <div class="card-header"><i class="fa fa-chart-line text-gold me-2"></i>Revenue Trend (12 Months)</div>
+      <div class="card-body">
+        <div class="chart-container" style="height:300px;">
+          <canvas id="revenueChart"></canvas>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="col-lg-6">
+  <div class="col-lg-4 animate-fade-in animate-delay-3">
     <div class="card h-100">
-      <div class="card-header">Monthly Collections Trend</div>
-      <div class="card-body"><canvas id="trendChart" height="220"></canvas></div>
+      <div class="card-header"><i class="fa fa-chart-bar text-gold me-2"></i>Outstanding by Class</div>
+      <div class="card-body">
+        <div class="chart-container" style="height:300px;">
+          <canvas id="outstandingChart"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header">Budget vs. Expenditure by Department</div>
+<!-- Year-over-Year Comparison -->
+<div class="card mb-4 animate-fade-in animate-delay-4">
+  <div class="card-header"><i class="fa fa-chart-simple text-gold me-2"></i>Year-over-Year Comparison</div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>Department</th><th>Allocated</th><th>Spent</th><th>Remaining</th><th>Utilization</th></tr></thead>
+      <thead><tr><th>Year</th><th>Total Billed</th><th>Total Collected</th><th>Outstanding</th><th>Collection Rate</th></tr></thead>
       <tbody>
-        <?php foreach ($budgetVsExpense as $b): $remaining = $b['allocated'] - $b['spent']; $pct = $b['allocated'] > 0 ? round(($b['spent']/$b['allocated'])*100,1) : 0; ?>
+        <?php foreach ($yearComparison as $yearName => $data): 
+          $billed = (float) $data['total_billed'];
+          $collected = (float) $data['total_collected'];
+          $outstanding = (float) $data['total_outstanding'];
+          $rate = $billed > 0 ? round(($collected / $billed) * 100, 1) : 0;
+        ?>
           <tr>
-            <td><?= e($b['department_name']) ?></td>
-            <td><?= format_money($b['allocated']) ?></td>
-            <td><?= format_money($b['spent']) ?></td>
-            <td class="<?= $remaining < 0 ? 'text-danger' : '' ?>"><?= format_money($remaining) ?></td>
-            <td style="width:160px;">
-              <div class="progress" style="height:18px;">
-                <div class="progress-bar <?= $pct > 90 ? 'bg-danger' : 'bg-success' ?>" style="width:<?= min($pct,100) ?>%"><?= e($pct) ?>%</div>
+            <td class="fw-semibold"><?= e($yearName) ?></td>
+            <td><?= format_money($billed) ?></td>
+            <td class="text-success"><?= format_money($collected) ?></td>
+            <td class="text-danger"><?= format_money($outstanding) ?></td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height:8px;">
+                  <div class="progress-bar bg-success" style="width:<?= $rate ?>%"></div>
+                </div>
+                <span class="small fw-semibold"><?= $rate ?>%</span>
               </div>
             </td>
           </tr>
@@ -111,22 +195,102 @@ require APP_ROOT . '/includes/header.php';
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script>
-const categoryLabels = <?= json_encode(array_column($categoryRows, 'category_name')) ?>;
-const categoryData = <?= json_encode(array_map('floatval', array_column($categoryRows, 'total'))) ?>;
-new Chart(document.getElementById('categoryChart'), {
-  type: 'doughnut',
-  data: { labels: categoryLabels, datasets: [{ data: categoryData, backgroundColor: ['#102A43','#C8932A','#1F8A55','#334E68','#C23B3B','#4C7DA8'] }] },
-  options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
-});
+<!-- Invoice Status Summary -->
+<div class="card animate-fade-in animate-delay-5">
+  <div class="card-header"><i class="fa fa-list text-gold me-2"></i>Invoice Status Summary</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3 col-6">
+        <div class="text-center p-3 bg-success bg-opacity-10 rounded">
+          <div class="display-6 text-success"><?= $kpis['paid_count'] ?></div>
+          <div class="small text-muted">Paid</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-center p-3 bg-warning bg-opacity-10 rounded">
+          <div class="display-6 text-warning"><?= $kpis['partial_count'] ?></div>
+          <div class="small text-muted">Partial</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-center p-3 bg-secondary bg-opacity-10 rounded">
+          <div class="display-6 text-secondary"><?= $kpis['pending_count'] ?></div>
+          <div class="small text-muted">Pending</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="text-center p-3 bg-danger bg-opacity-10 rounded">
+          <div class="display-6 text-danger"><?= $kpis['overdue_count'] ?></div>
+          <div class="small text-muted">Overdue</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-const trendLabels = <?= json_encode(array_column($monthlyCollections, 'month')) ?>;
-const trendData = <?= json_encode(array_map('floatval', array_column($monthlyCollections, 'total'))) ?>;
-new Chart(document.getElementById('trendChart'), {
-  type: 'line',
-  data: { labels: trendLabels, datasets: [{ label: 'Collections (TZS)', data: trendData, borderColor: '#C8932A', backgroundColor: 'rgba(200,147,42,0.15)', fill: true, tension: 0.3 }] },
-  options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fmt = (v) => 'TZS ' + Number(v).toLocaleString(undefined, {minimumFractionDigits:0});
+
+    // Revenue Chart
+    const revCtx = document.getElementById('revenueChart');
+    if (revCtx) {
+        new Chart(revCtx, {
+            type: 'bar',
+            data: {
+                labels: <?= json_encode($yearlyTrend['months']) ?>,
+                datasets: [{
+                    label: 'Collected',
+                    data: <?= json_encode($yearlyTrend['collected']) ?>,
+                    backgroundColor: 'rgba(31,138,85,0.7)',
+                    borderColor: '#1F8A55',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { backgroundColor: '#0A1C2E', cornerRadius: 8, padding: 12,
+                        callbacks: { label: ctx => fmt(ctx.raw) }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 10 }, callback: v => fmt(v) } },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                }
+            }
+        });
+    }
+
+    // Outstanding by Class Chart
+    const outCtx = document.getElementById('outstandingChart');
+    if (outCtx) {
+        const labels = <?= json_encode(array_column($outstandingByClass, 'level_name')) ?>;
+        const data = <?= json_encode(array_map(function($o) { return (float) $o['outstanding']; }, $outstandingByClass)) ?>;
+        new Chart(outCtx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: ['#C23B3B', '#C8932A', '#334E68', '#1F8A55', '#6B7280', '#6366F1', '#EC4899'],
+                    borderWidth: 0,
+                    hoverOffset: 10
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 8, font: { size: 10 } } },
+                    tooltip: { backgroundColor: '#0A1C2E', cornerRadius: 8, padding: 12,
+                        callbacks: { label: ctx => ctx.label + ': ' + fmt(ctx.raw) }
+                    }
+                }
+            }
+        });
+    }
 });
 </script>
 

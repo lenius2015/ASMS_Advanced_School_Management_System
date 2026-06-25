@@ -64,9 +64,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  // ====== Confirm before destructive actions ======
+  // ====== Confirm before destructive actions (works with both forms and buttons) ======
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
-    el.addEventListener('click', function (e) {
+    el.addEventListener(el.tagName === 'FORM' ? 'submit' : 'click', function (e) {
       if (!confirm(el.getAttribute('data-confirm') || 'Are you sure?')) {
         e.preventDefault();
       }

@@ -61,6 +61,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                     ->execute(['sid' => $newStudentId, 'gid' => $guardianId]);
             }
 
+            // Handle document uploads (birth certificate & medical checkup)
+            $targetDir = APP_ROOT . '/uploads/documents/student/';
+            if (!is_dir($targetDir)) {
+                mkdir($targetDir, 0755, true);
+            }
+
+            $docTypes = ['birth_certificate', 'medical_checkup'];
+            $uploadedDocs = 0;
+
+            foreach ($docTypes as $docType) {
+                $fileKey = 'doc_' . $docType;
+                if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['error'] !== UPLOAD_ERR_NO_FILE) {
+                    $file = $_FILES[$fileKey];
+                    $allowedExt = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'gif'];
+                    $docError = validate_upload($file, $allowedExt, 10_485_760);
+
+                    if (!$docError) {
+                        $filePath = store_upload($file, $targetDir, 'doc_' . $newStudentId);
+                        $mimeType = mime_content_type($filePath) ?: $file['type'];
+                        $docName = ucfirst(str_replace('_', ' ', $docType));
+
+                        $pdo->prepare(
+                            'INSERT INTO student_documents (student_id, document_type, document_name, file_path, file_size, mime_type, uploaded_by)
+                             VALUES (:sid, :type, :name, :path, :size, :mime, :uid)'
+                        )->execute([
+                            'sid' => $newStudentId, 'type' => $docType, 'name' => $docName,
+                            'path' => $filePath, 'size' => $file['size'], 'mime' => $mimeType,
+                            'uid' => current_user_id(),
+                        ]);
+                        $uploadedDocs++;
+                    }
+                }
+            }
+
+            // Auto-update registration completeness if both docs uploaded
+            if ($uploadedDocs >= 2) {
+                $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = :sid')
+                    ->execute(['sid' => $newStudentId]);
+            }
+
             $pdo->commit();
             audit_log('create_student', 'student_management', 'students', $newStudentId, "Registered student {$admissionNo}");
             flash_set('success', "Student registered with admission number {$admissionNo}. Login username: {$username}, temporary password: {$tempPassword}.");
@@ -190,7 +230,7 @@ require APP_ROOT . '/includes/header.php';
 <div class="modal fade" id="newStudentModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="POST">
+      <form method="POST" enctype="multipart/form-data">
         <?php csrf_field(); ?>
         <input type="hidden" name="action" value="create_student">
         <div class="modal-header">
@@ -199,6 +239,7 @@ require APP_ROOT . '/includes/header.php';
         </div>
         <div class="modal-body">
           <?php if ($error): ?><div class="alert alert-danger small"><?= e($error) ?></div><?php endif; ?>
+          
           <h6 class="text-muted small text-uppercase">Student Details</h6>
           <div class="row g-2 mb-2">
             <div class="col-md-6"><label class="form-label">First Name <span class="required-mark">*</span></label><input type="text" name="first_name" class="form-control" required></div>
@@ -221,7 +262,7 @@ require APP_ROOT . '/includes/header.php';
           <div class="mb-3"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2"></textarea></div>
 
           <h6 class="text-muted small text-uppercase">Primary Guardian (optional, can be added later)</h6>
-          <div class="row g-2">
+          <div class="row g-2 mb-3">
             <div class="col-md-5"><label class="form-label">Full Name</label><input type="text" name="guardian_name" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Phone</label><input type="text" name="guardian_phone" class="form-control"></div>
             <div class="col-md-3"><label class="form-label">Relationship</label>
@@ -230,6 +271,25 @@ require APP_ROOT . '/includes/header.php';
               </select>
             </div>
           </div>
+
+          <!-- Documents Section -->
+          <h6 class="text-muted small text-uppercase border-top pt-3">Supporting Documents (optional, can be added later)</h6>
+          <div class="text-muted small mb-2">
+            <i class="fa fa-info-circle me-1"></i>Uploading birth certificate and medical checkup will mark registration as <strong>Complete</strong>.
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Birth Certificate</label>
+              <input type="file" name="doc_birth_certificate" class="form-control form-control-sm" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif">
+              <div class="form-text">PDF, DOC, JPG, PNG (max 10MB)</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Medical Checkup Form</label>
+              <input type="file" name="doc_medical_checkup" class="form-control form-control-sm" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif">
+              <div class="form-text">PDF, DOC, JPG, PNG (max 10MB)</div>
+            </div>
+          </div>
+
           <p class="text-muted small mt-3 mb-0">An admission number and student login will be generated automatically.</p>
         </div>
         <div class="modal-footer">

@@ -5,7 +5,7 @@
  * qualification, certificate, and HR information.
  */
 require_once __DIR__ . '/../config/config.php';
-require_role(['director', 'system_admin', 'head_of_school']);
+require_role(['director', 'system_admin', 'head_of_school', 'academic_officer']);
 
 $pdo = get_db_connection();
 $staffId = (int) ($_GET['id'] ?? 0);

@@ -6,7 +6,7 @@
  * and manage system notifications. Students can be restricted from sending messages.
  */
 require_once __DIR__ . '/../config/config.php';
-require_role(['director', 'system_admin']);
+require_role(['director', 'system_admin', 'head_of_school', 'bursar', 'academic_officer', 'class_teacher', 'subject_teacher', 'parent', 'student']);
 
 $pdo = get_db_connection();
 

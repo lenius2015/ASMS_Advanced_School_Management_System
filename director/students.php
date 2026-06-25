@@ -165,7 +165,7 @@ require APP_ROOT . '/includes/header.php';
 <div class="modal fade" id="newStudentModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="POST">
+      <form method="POST" enctype="multipart/form-data">
         <?php csrf_field(); ?>
         <input type="hidden" name="action" value="create_student">
         <div class="modal-header">
@@ -196,7 +196,7 @@ require APP_ROOT . '/includes/header.php';
           <div class="mb-3"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2"></textarea></div>
 
           <h6 class="text-muted small text-uppercase">Primary Guardian (optional, can be added later)</h6>
-          <div class="row g-2">
+          <div class="row g-2 mb-3">
             <div class="col-md-5"><label class="form-label">Full Name</label><input type="text" name="guardian_name" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Phone</label><input type="text" name="guardian_phone" class="form-control"></div>
             <div class="col-md-3"><label class="form-label">Relationship</label>
@@ -205,6 +205,25 @@ require APP_ROOT . '/includes/header.php';
               </select>
             </div>
           </div>
+
+          <!-- Documents Section -->
+          <h6 class="text-muted small text-uppercase border-top pt-3">Supporting Documents (optional, can be added later)</h6>
+          <div class="text-muted small mb-2">
+            <i class="fa fa-info-circle me-1"></i>Uploading birth certificate and medical checkup will mark registration as <strong>Complete</strong>.
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Birth Certificate</label>
+              <input type="file" name="doc_birth_certificate" class="form-control form-control-sm" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif">
+              <div class="form-text">PDF, DOC, JPG, PNG (max 10MB)</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Medical Checkup Form</label>
+              <input type="file" name="doc_medical_checkup" class="form-control form-control-sm" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif">
+              <div class="form-text">PDF, DOC, JPG, PNG (max 10MB)</div>
+            </div>
+          </div>
+
           <p class="text-muted small mt-3 mb-0">An admission number and student login will be generated automatically.</p>
         </div>
         <div class="modal-footer">

@@ -138,6 +138,10 @@ require APP_ROOT . '/includes/header.php';
               <?php foreach ($terms as $t): ?><option value="<?= (int) $t['term_id'] ?>"><?= e($t['year_name'] . ' - ' . $t['term_name']) ?></option><?php endforeach; ?>
             </select>
           </div>
+          <div class="mb-2">
+            <label class="form-label">Description</label>
+            <input type="text" name="description" class="form-control" placeholder="e.g. Term 1 School Fees" maxlength="150">
+          </div>
           <div class="mb-3">
             <label class="form-label">Amount (TZS)</label>
             <input type="number" name="amount" class="form-control" min="0" step="1000" required>
