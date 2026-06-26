@@ -34,10 +34,12 @@ $menus = [
         ['Dashboard', '/head_of_school/dashboard.php', 'fa-school'],
         ['Student Management', '/head_of_school/students.php', 'fa-user-graduate'],
         ['Staff Management', '/head_of_school/staff.php', 'fa-id-badge'],
+        ['Department Management', '/head_of_school/departments.php', 'fa-building'],
         ['Attendance Overview', '/academic/attendance_overview.php', 'fa-calendar-check'],
         ['Academic Reports', '/academic/reports.php', 'fa-chart-bar'],
         ['Discipline Records', '/head_of_school/discipline.php', 'fa-gavel'],
         ['School Reports', '/head_of_school/reports.php', 'fa-file-alt'],
+        ['Parent Accounts', '/academic/parent_accounts.php', 'fa-users'],
         ['Announcements', '/communication/announcements.php', 'fa-bullhorn'],
     ],
     'bursar' => [
@@ -48,6 +50,7 @@ $menus = [
         ['Fee Reminders', '/bursar/fee_reminders.php', 'fa-bell'],
         ['Payroll', '/bursar/payroll.php', 'fa-wallet'],
         ['Budget & Expenses', '/bursar/budget.php', 'fa-piggy-bank'],
+        ['Payment Gateway', '/bursar/gateway_settings.php', 'fa-credit-card'],
         ['Financial Reports', '/bursar/reports.php', 'fa-chart-line'],
     ],
     'academic_officer' => [
@@ -67,6 +70,7 @@ $menus = [
         ['Academic Reports', '/academic/reports.php', 'fa-chart-bar'],
         ['Promotions', '/academic/promotions.php', 'fa-level-up-alt'],
         ['Transcripts', '/academic/transcripts.php', 'fa-scroll'],
+        ['Parent Accounts', '/academic/parent_accounts.php', 'fa-users'],
     ],
     'subject_teacher' => [
         ['Dashboard', '/teacher/dashboard.php', 'fa-chalkboard-teacher'],

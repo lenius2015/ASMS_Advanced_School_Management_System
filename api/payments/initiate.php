@@ -1,130 +1,113 @@
 <?php
 /**
  * api/payments/initiate.php
- * API Endpoint: Initiate a payment via gateway (GePG, M-Pesa, etc.)
- * POST /api/payments/initiate.php
- * 
- * Request body:
- * {
- *   "invoice_id": 123,
- *   "gateway": "gepg|mpesa|tigo_pesa|airtel_money|halopesa|bank",
- *   "amount": 500000,
- *   "phone": "2557XXXXXXXXX",
- *   "callback_url": "https://school.example.com/api/payments/callback.php"
- * }
- * 
- * Response:
- * {
- *   "success": true,
- *   "message": "Payment initiated",
- *   "transaction_id": "GEPG2026062512345678",
- *   "control_number": "SCH2026INV00001",
- *   "redirect_url": "https://gepg.example.com/pay/..."
- * }
+ * Initiate a payment request from the parent portal.
+ * This creates a payment transaction and returns payment instructions.
  */
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../includes/fee_functions.php';
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method not allowed. Use POST.']);
+// Must be logged in
+if (!is_logged_in()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Authentication required.']);
     exit;
 }
 
 $pdo = get_db_connection();
+$userId = current_user_id();
+$role = current_role();
 
-// Parse JSON body
-$body = json_decode(file_get_contents('php://input'), true);
-if (!$body) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid JSON body.']);
+// Only parents can initiate payments via this endpoint
+if ($role !== 'parent') {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Only parents can initiate payments.']);
     exit;
 }
 
-$invoiceId = (int) ($body['invoice_id'] ?? 0);
-$gatewayName = $body['gateway'] ?? '';
-$amount = (float) ($body['amount'] ?? 0);
-$phone = $body['phone'] ?? '';
-$callbackUrl = $body['callback_url'] ?? app_url('/api/payments/callback.php');
+$input = json_decode(file_get_contents('php://input'), true);
+$studentId = (int) ($input['student_id'] ?? 0);
+$invoiceId = (int) ($input['invoice_id'] ?? 0);
+$amount = (float) ($input['amount'] ?? 0);
+$paymentMethod = $input['payment_method'] ?? 'online_gateway';
+$phoneNumber = trim($input['phone_number'] ?? '');
 
-// Validate gateway
-$allowedGateways = ['gepg', 'mpesa', 'tigo_pesa', 'airtel_money', 'halopesa', 'bank'];
-if (!in_array($gatewayName, $allowedGateways)) {
+// --- Validation ---
+if ($studentId <= 0 || $invoiceId <= 0 || $amount <= 0) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid gateway. Must be one of: ' . implode(', ', $allowedGateways)]);
+    echo json_encode(['success' => false, 'message' => 'Invalid payment parameters.']);
     exit;
 }
 
-// Validate invoice
-$stmt = $pdo->prepare('SELECT * FROM invoices WHERE invoice_id = :id AND status IN (:s1, :s2, :s3)');
-$stmt->execute(['id' => $invoiceId, 's1' => 'pending', 's2' => 'partial', 's3' => 'overdue']);
+// Verify this parent owns the student
+require_once __DIR__ . '/../../includes/fee_functions.php';
+$verifiedStudent = verify_guardian_owns_student($pdo, $userId, $studentId);
+if (!$verifiedStudent) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'You do not have access to this student.']);
+    exit;
+}
+
+// Verify invoice belongs to this student and is valid
+$stmt = $pdo->prepare(
+    "SELECT invoice_id, total_amount, amount_paid, balance, status 
+     FROM invoices WHERE invoice_id = :iid AND student_id = :sid AND status IN ('unpaid', 'partial', 'overdue')"
+);
+$stmt->execute(['iid' => $invoiceId, 'sid' => $studentId]);
 $invoice = $stmt->fetch();
 
 if (!$invoice) {
-    http_response_code(404);
+    http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invoice not found or already paid.']);
     exit;
 }
 
-if ($amount <= 0) {
-    $amount = (float) $invoice['balance'];
-}
-
-if ($amount > (float) $invoice['balance']) {
+// Amount cannot exceed balance
+if ($amount > $invoice['balance']) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Amount exceeds outstanding balance.']);
+    echo json_encode(['success' => false, 'message' => 'Amount exceeds invoice balance.']);
     exit;
 }
 
-// Get payment gateway
-$gateway = get_payment_gateway($gatewayName);
-if (!$gateway) {
+try {
+    $pdo->beginTransaction();
+
+    // Create payment transaction
+    $stmt = $pdo->prepare(
+        'INSERT INTO payment_transactions (invoice_id, student_id, amount, payment_method, status, initiated_by, phone_number)
+         VALUES (:iid, :sid, :amt, :method, :status, :uid, :phone)'
+    );
+    $stmt->execute([
+        'iid' => $invoiceId, 'sid' => $studentId, 'amt' => $amount,
+        'method' => $paymentMethod, 'status' => 'pending',
+        'uid' => $userId, 'phone' => $phoneNumber ?: null,
+    ]);
+    $transactionId = (int) $pdo->lastInsertId();
+
+    $pdo->commit();
+
+    // Get active payment gateway
+    $gateway = $pdo->query("SELECT * FROM payment_gateways WHERE is_active = 1 LIMIT 1")->fetch();
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Payment initiated successfully.',
+        'data' => [
+            'transaction_id' => $transactionId,
+            'invoice_id' => $invoiceId,
+            'amount' => $amount,
+            'status' => 'pending',
+            'payment_method' => $paymentMethod,
+            'gateway' => $gateway ? $gateway['gateway_name'] : null,
+            'instructions' => $gateway 
+                ? "Please send {$amount} TZS via {$gateway['gateway_name']} using reference: INV-" . str_pad($invoiceId, 6, '0', STR_PAD_LEFT)
+                : 'No active payment gateway. Please contact the school bursar for payment instructions.',
+        ],
+    ]);
+} catch (Throwable $e) {
+    $pdo->rollBack();
+    error_log('[ASMS] Payment initiation failed: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Payment gateway not configured.']);
-    exit;
+    echo json_encode(['success' => false, 'message' => 'Failed to initiate payment.']);
 }
-
-// Initiate payment through gateway
-$paymentData = [
-    'invoice_id'     => $invoiceId,
-    'invoice_no'     => $invoice['invoice_no'],
-    'control_number' => $invoice['control_number'],
-    'amount'         => $amount,
-    'phone'          => $phone,
-    'callback_url'   => $callbackUrl,
-    'merchant_code'  => 'SCH001',
-    'description'    => 'School fees payment for invoice ' . $invoice['invoice_no'],
-];
-
-$gatewayResponse = $gateway->initiatePayment($paymentData);
-
-// Log the API call
-log_payment_api_call(
-    $pdo,
-    null,
-    $invoiceId,
-    $gatewayName,
-    json_encode($paymentData),
-    json_encode($gatewayResponse),
-    $gatewayResponse['success'] ? 'pending' : 'failed',
-    $gatewayResponse['transaction_id'] ?? '',
-    $gatewayResponse['transaction_id'] ?? ''
-);
-
-echo json_encode([
-    'success'        => $gatewayResponse['success'],
-    'message'        => $gatewayResponse['message'],
-    'transaction_id' => $gatewayResponse['transaction_id'] ?? null,
-    'control_number' => $invoice['control_number'],
-    'redirect_url'   => $gatewayResponse['redirect_url'] ?? null,
-]);

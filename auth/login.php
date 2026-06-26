@@ -73,8 +73,8 @@ $sessionExpired = isset($_GET['expired']);
     <form method="POST" action="<?= e(app_url('/auth/login.php')) ?><?= isset($_GET['next']) ? '?next=' . e(urlencode($_GET['next'])) : '' ?>" novalidate>
       <?php csrf_field(); ?>
       <div class="mb-3">
-        <label for="username" class="form-label">Email Address</label>
-        <input type="email" class="form-control" id="username" name="username" required autofocus autocomplete="email" placeholder="e.g. director@example.com">
+        <label for="username" class="form-label">Username or Email</label>
+        <input type="text" class="form-control" id="username" name="username" required autofocus autocomplete="username" placeholder="Enter your username or email">
       </div>
       <div class="mb-3">
         <label for="password" class="form-label">Password</label>

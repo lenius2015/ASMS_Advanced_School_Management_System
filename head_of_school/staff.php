@@ -67,6 +67,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
+// ---- Edit Staff -------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_staff') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+    $departmentId = (int) ($_POST['department_id'] ?? 0) ?: null;
+    $jobTitle = trim($_POST['job_title'] ?? '');
+    $employmentType = $_POST['employment_type'] ?? 'full_time';
+    $dateHired = $_POST['date_hired'] ?? null;
+    $basicSalary = (float) ($_POST['basic_salary'] ?? 0);
+    $educationLevel = trim($_POST['education_level'] ?? '');
+
+    if ($staffId <= 0 || $jobTitle === '') {
+        flash_set('error', 'Staff ID and job title are required.');
+    } else {
+        try {
+            $pdo->prepare(
+                'UPDATE staff SET department_id = :dept, job_title = :title, employment_type = :etype,
+                 date_hired = :hired, basic_salary = :salary, education_level = :edu
+                 WHERE staff_id = :sid'
+            )->execute([
+                'dept' => $departmentId, 'title' => $jobTitle, 'etype' => $employmentType,
+                'hired' => $dateHired ?: null, 'salary' => $basicSalary, 'edu' => $educationLevel ?: null,
+                'sid' => $staffId,
+            ]);
+            audit_log('edit_staff', 'staff_management', 'staff', $staffId, "Edited staff record");
+            flash_set('success', 'Staff record updated successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] edit_staff failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to update staff record.');
+        }
+    }
+    redirect(app_url('/head_of_school/staff.php'));
+}
+
+// ---- Update Staff Status (terminate/activate/suspend) -----------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_status') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+    $newStatus = $_POST['status'] ?? '';
+
+    $allowedStatuses = ['active', 'on_leave', 'suspended', 'terminated', 'retired'];
+    if ($staffId <= 0 || !in_array($newStatus, $allowedStatuses)) {
+        flash_set('error', 'Invalid request parameters.');
+    } else {
+        $pdo->prepare('UPDATE staff SET status = :s WHERE staff_id = :id')
+            ->execute(['s' => $newStatus, 'id' => $staffId]);
+        audit_log('update_staff_status', 'staff_management', 'staff', $staffId, "Status changed to {$newStatus}");
+        flash_set('success', 'Staff status updated successfully.');
+    }
+    redirect(app_url('/head_of_school/staff.php'));
+}
+
+// ---- Quick Upload Document --------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'quick_upload_cv') {
     csrf_verify();
     $staffId = (int) ($_POST['staff_id'] ?? 0);
@@ -226,7 +279,7 @@ require APP_ROOT . '/includes/header.php';
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
-        <tr><th>Staff</th><th>Contact</th><th>Department</th><th>Employment</th><th>Docs</th><th>Status</th><th></th></tr>
+        <tr><th>Staff</th><th>Contact</th><th>Department</th><th>Employment</th><th>Docs</th><th>Status</th><th>Actions</th></tr>
       </thead>
       <tbody>
         <?php foreach ($staffList as $s): ?>
@@ -235,7 +288,7 @@ require APP_ROOT . '/includes/header.php';
               <div class="d-flex align-items-center gap-2">
                 <div class="staff-avatar-sm"><?php if ($s['photo_path'] && file_exists($s['photo_path'])): ?><img src="<?= e(app_url($s['photo_path'])) ?>" class="staff-avatar-sm" alt=""><?php else: ?><i class="fa fa-user text-secondary"></i><?php endif; ?></div>
                 <div>
-                  <a href="<?= e(app_url('/director/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="fw-semibold text-decoration-none"><?= e($s['first_name'] . ' ' . $s['last_name']) ?></a>
+                  <a href="<?= e(app_url('/head_of_school/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="fw-semibold text-decoration-none"><?= e($s['first_name'] . ' ' . $s['last_name']) ?></a>
                   <div class="small text-muted"><code><?= e($s['staff_no']) ?></code> &middot; <span class="badge bg-secondary"><?= e(str_replace('_', ' ', $s['role_name'])) ?></span></div>
                 </div>
               </div>
@@ -247,11 +300,94 @@ require APP_ROOT . '/includes/header.php';
               <span class="badge bg-<?= $s['doc_count'] > 0 ? 'success' : 'secondary' ?>">📄<?= (int) $s['doc_count'] ?></span>
               <span class="badge bg-<?= $s['cert_count'] > 0 ? 'success' : 'secondary' ?>">🎓<?= (int) $s['cert_count'] ?></span>
             </td>
-            <td><span class="badge bg-<?= $s['status']==='active' ? 'success' : ($s['status']==='on_leave' ? 'warning' : 'secondary') ?>"><?= e(ucfirst(str_replace('_',' ',$s['status']))) ?></span></td>
-            <td class="text-center">
-              <a href="<?= e(app_url('/director/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="btn btn-sm btn-outline-primary" title="View Profile"><i class="fa fa-eye"></i></a>
+            <td>
+              <form method="POST" class="d-inline status-form">
+                <?php csrf_field(); ?>
+                <input type="hidden" name="action" value="update_status">
+                <input type="hidden" name="staff_id" value="<?= (int) $s['staff_id'] ?>">
+                <select name="status" class="form-select form-select-sm" style="min-width:100px;" onchange="if(confirm('Change status for <?= e($s['first_name'] . ' ' . $s['last_name']) ?> to ' + this.value + '?')) this.form.submit()">
+                  <option value="active" <?= $s['status']==='active' ? 'selected' : '' ?>>Active</option>
+                  <option value="on_leave" <?= $s['status']==='on_leave' ? 'selected' : '' ?>>On Leave</option>
+                  <option value="suspended" <?= $s['status']==='suspended' ? 'selected' : '' ?>>Suspended</option>
+                  <option value="terminated" <?= $s['status']==='terminated' ? 'selected' : '' ?>>Terminated</option>
+                  <option value="retired" <?= $s['status']==='retired' ? 'selected' : '' ?>>Retired</option>
+                </select>
+              </form>
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <a href="<?= e(app_url('/head_of_school/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="btn btn-outline-primary" title="View Profile"><i class="fa fa-eye"></i></a>
+                <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#editStaffModal<?= (int) $s['staff_id'] ?>" title="Edit Staff"><i class="fa fa-edit"></i></button>
+              </div>
             </td>
           </tr>
+        
+        <!-- Edit Staff Modal (inline per row) -->
+        <div class="modal fade" id="editStaffModal<?= (int) $s['staff_id'] ?>" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <form method="POST">
+                <?php csrf_field(); ?>
+                <input type="hidden" name="action" value="edit_staff">
+                <input type="hidden" name="staff_id" value="<?= (int) $s['staff_id'] ?>">
+                <div class="modal-header">
+                  <h5 class="modal-title">Edit Staff: <?= e($s['first_name'] . ' ' . $s['last_name']) ?></h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-2">
+                    <label class="form-label">Department</label>
+                    <select name="department_id" class="form-select">
+                      <option value="">-- None --</option>
+                      <?php foreach ($departments as $d): ?>
+                        <option value="<?= (int) $d['department_id'] ?>" <?= (int) $s['department_id'] === (int) $d['department_id'] ? 'selected' : '' ?>><?= e($d['department_name']) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Job Title <span class="required-mark">*</span></label>
+                    <input type="text" name="job_title" class="form-control" required value="<?= e($s['job_title']) ?>">
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label">Employment Type</label>
+                      <select name="employment_type" class="form-select">
+                        <option value="full_time" <?= $s['employment_type']==='full_time'?'selected':''?>>Full Time</option>
+                        <option value="part_time" <?= $s['employment_type']==='part_time'?'selected':''?>>Part Time</option>
+                        <option value="contract" <?= $s['employment_type']==='contract'?'selected':''?>>Contract</option>
+                        <option value="volunteer" <?= $s['employment_type']==='volunteer'?'selected':''?>>Volunteer</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label">Date Hired</label>
+                      <input type="date" name="date_hired" class="form-control" value="<?= e($s['date_hired'] ?? '') ?>">
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label">Basic Salary (TZS)</label>
+                      <input type="number" name="basic_salary" class="form-control" min="0" step="1000" value="<?= e($s['basic_salary'] ?: '') ?>">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label">Education Level</label>
+                      <select name="education_level" class="form-select">
+                        <option value="">-- Select --</option>
+                        <?php foreach (['Primary','Secondary','Certificate','Diploma',"Bachelor's Degree","Master's Degree",'PhD','Other'] as $opt): ?>
+                          <option value="<?= $opt ?>" <?= $s['education_level'] === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        
         <?php endforeach; ?>
         <?php if (empty($staffList)): ?><tr><td colspan="7" class="text-center text-muted py-4">No staff found.</td></tr><?php endif; ?>
       </tbody>

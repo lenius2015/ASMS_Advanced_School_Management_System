@@ -187,10 +187,24 @@ $statusColor = $statusColors[$paymentStatus] ?? 'secondary';
             <td class="text-success"><?= format_money($inv['amount_paid']) ?></td>
             <td class="text-danger"><?= format_money($inv['balance']) ?></td>
             <td class="small"><?= format_date($inv['due_date']) ?></td>
-            <td><span class="badge badge-status-<?= e($inv['status']) ?>"><?= e(ucfirst($inv['status'])) ?></span></td>
+            <td>
+              <span class="badge badge-status-<?= e($inv['status']) ?>"><?= e(ucfirst($inv['status'])) ?></span>
+            </td>
+            <td>
+              <?php if ((float) $inv['balance'] > 0 && in_array($inv['status'], ['unpaid', 'partial', 'overdue'])): ?>
+                <button class="btn btn-sm btn-gold pay-now-btn" 
+                  data-student-id="<?= (int) $verifiedStudentId ?>"
+                  data-invoice-id="<?= (int) $inv['invoice_id'] ?>"
+                  data-invoice-no="<?= e($inv['invoice_no']) ?>"
+                  data-balance="<?= (float) $inv['balance'] ?>"
+                  data-bs-toggle="modal" data-bs-target="#payNowModal">
+                  <i class="fa fa-credit-card me-1"></i> Pay Now
+                </button>
+              <?php endif; ?>
+            </td>
           </tr>
         <?php endforeach; ?>
-        <?php if (empty($invoices)): ?><tr><td colspan="8" class="text-center text-muted py-4">No invoices generated yet.</td></tr><?php endif; ?>
+        <?php if (empty($invoices)): ?><tr><td colspan="9" class="text-center text-muted py-4">No invoices generated yet.</td></tr><?php endif; ?>
       </tbody>
     </table>
   </div>
@@ -246,8 +260,130 @@ $statusColor = $statusColors[$paymentStatus] ?? 'secondary';
 </div>
 <?php endif; ?>
 
+<!-- Pay Now Modal -->
+<div class="modal fade" id="payNowModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-credit-card text-gold me-2"></i>Make Payment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="payNowForm">
+        <div class="modal-body">
+          <input type="hidden" name="student_id" id="payStudentId" value="">
+          <input type="hidden" name="invoice_id" id="payInvoiceId" value="">
+          <div class="mb-3">
+            <label class="form-label">Invoice</label>
+            <p class="fw-bold mb-0" id="payInvoiceNo"></p>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Outstanding Balance</label>
+            <p class="fw-bold text-danger" id="payBalance"></p>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Payment Amount (TZS) <span class="required-mark">*</span></label>
+            <input type="number" name="amount" id="payAmount" class="form-control" min="1" step="1000" required>
+            <small class="text-muted">Enter the amount you wish to pay (cannot exceed balance).</small>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Payment Method</label>
+            <select name="payment_method" id="payMethod" class="form-select">
+              <option value="mobile_money">Mobile Money (M-Pesa/Airtel/Tigo)</option>
+              <option value="online_gateway">Online Payment Gateway</option>
+              <option value="bank_transfer">Bank Transfer</option>
+            </select>
+          </div>
+          <div class="mb-3" id="phoneNumberGroup">
+            <label class="form-label">Phone Number (for Mobile Money)</label>
+            <input type="text" name="phone_number" id="payPhone" class="form-control" placeholder="e.g. 0712345678">
+          </div>
+          <div id="payResult" class="alert d-none"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-gold" id="paySubmitBtn"><i class="fa fa-credit-card me-1"></i> Process Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="mt-3 text-muted small">
   <i class="fa fa-info-circle me-1"></i> For payment options or to dispute a charge, please contact the school's finance office (Bursar).
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up Pay Now buttons
+    document.querySelectorAll('.pay-now-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('payStudentId').value = this.dataset.studentId;
+            document.getElementById('payInvoiceId').value = this.dataset.invoiceId;
+            document.getElementById('payInvoiceNo').textContent = this.dataset.invoiceNo;
+            document.getElementById('payBalance').textContent = 'TZS ' + Number(this.dataset.balance).toLocaleString();
+            document.getElementById('payAmount').max = this.dataset.balance;
+            document.getElementById('payAmount').value = this.dataset.balance;
+            document.getElementById('payResult').classList.add('d-none');
+            document.getElementById('paySubmitBtn').disabled = false;
+        });
+    });
+
+    // Toggle phone field visibility based on payment method
+    document.getElementById('payMethod').addEventListener('change', function() {
+        document.getElementById('phoneNumberGroup').style.display = 
+            this.value === 'mobile_money' ? 'block' : 'none';
+    });
+    document.getElementById('phoneNumberGroup').style.display = 'none';
+
+    // Handle payment submission
+    document.getElementById('payNowForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var btn = document.getElementById('paySubmitBtn');
+        var resultDiv = document.getElementById('payResult');
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i> Processing...';
+        resultDiv.classList.add('d-none');
+
+        var data = {
+            student_id: parseInt(document.getElementById('payStudentId').value),
+            invoice_id: parseInt(document.getElementById('payInvoiceId').value),
+            amount: parseFloat(document.getElementById('payAmount').value),
+            payment_method: document.getElementById('payMethod').value,
+            phone_number: document.getElementById('payPhone').value
+        };
+
+        fetch('<?= e(app_url('/api/payments/initiate.php')) ?>', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(result) {
+            resultDiv.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-info');
+            if (result.success) {
+                resultDiv.classList.add('alert-success');
+                resultDiv.innerHTML = '<strong>Payment initiated!</strong><br>' + 
+                    result.data.instructions +
+                    '<br><br><strong>Reference:</strong> ' + result.data.transaction_id;
+                btn.innerHTML = '<i class="fa fa-check me-1"></i> Done';
+                btn.disabled = true;
+            } else {
+                resultDiv.classList.add('alert-danger');
+                resultDiv.textContent = result.message;
+                btn.innerHTML = '<i class="fa fa-credit-card me-1"></i> Process Payment';
+                btn.disabled = false;
+            }
+        })
+        .catch(function(err) {
+            resultDiv.classList.remove('d-none');
+            resultDiv.classList.add('alert-danger');
+            resultDiv.textContent = 'Network error. Please try again.';
+            btn.innerHTML = '<i class="fa fa-credit-card me-1"></i> Process Payment';
+            btn.disabled = false;
+        });
+    });
+});
+</script>
 
 <?php require APP_ROOT . '/includes/footer.php'; ?>

@@ -47,6 +47,17 @@ $roleAudienceMap = [
 $visibleAudiences = $roleAudienceMap[current_role()] ?? ['all'];
 $placeholders = implode(',', array_fill(0, count($visibleAudiences), '?'));
 
+// ---- Handle Delete Announcement ---------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_announcement') {
+    csrf_verify();
+    $announcementId = (int) ($_POST['announcement_id'] ?? 0);
+    if ($announcementId > 0) {
+        $pdo->prepare('DELETE FROM announcements WHERE announcement_id = :id')->execute(['id' => $announcementId]);
+        flash_set('success', 'Announcement deleted.');
+    }
+    redirect(app_url('/communication/announcements.php'));
+}
+
 $stmt = $pdo->prepare("SELECT a.*, u.first_name, u.last_name FROM announcements a JOIN users u ON u.user_id = a.posted_by WHERE a.audience IN ({$placeholders}) OR a.audience = 'specific_class' ORDER BY a.created_at DESC LIMIT 50");
 $stmt->execute($visibleAudiences);
 $announcements = $stmt->fetchAll();
@@ -71,7 +82,17 @@ require APP_ROOT . '/includes/header.php';
         <div class="card-body">
           <div class="d-flex justify-content-between">
             <h5 class="card-title"><?= e($a['title']) ?></h5>
-            <span class="badge bg-<?= $a['priority']==='urgent' ? 'danger' : ($a['priority']==='important' ? 'warning' : 'secondary') ?>"><?= e(ucfirst($a['priority'])) ?></span>
+            <div class="d-flex gap-1">
+              <span class="badge bg-<?= $a['priority']==='urgent' ? 'danger' : ($a['priority']==='important' ? 'warning' : 'secondary') ?>"><?= e(ucfirst($a['priority'])) ?></span>
+              <?php if ($canPost || current_role() === 'director' || current_role() === 'system_admin'): ?>
+                <form method="POST" class="d-inline" onsubmit="return confirm('Delete this announcement?')">
+                  <?php csrf_field(); ?>
+                  <input type="hidden" name="action" value="delete_announcement">
+                  <input type="hidden" name="announcement_id" value="<?= (int) $a['announcement_id'] ?>">
+                  <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="fa fa-trash"></i></button>
+                </form>
+              <?php endif; ?>
+            </div>
           </div>
           <p class="card-text"><?= nl2br(e($a['body'])) ?></p>
           <p class="text-muted small mb-0">By <?= e($a['first_name'] . ' ' . $a['last_name']) ?> &middot; <?= e(format_date($a['created_at'])) ?> &middot; Audience: <?= e(str_replace('_',' ',ucfirst($a['audience']))) ?></p>

@@ -1,0 +1,203 @@
+<?php
+/**
+ * head_of_school/staff_detail.php
+ * Full staff profile view for Head of School.
+ * Head of School can view, edit, manage documents, and change status.
+ */
+require_once __DIR__ . '/../config/config.php';
+require_role(['director', 'system_admin', 'head_of_school', 'academic_officer']);
+
+$pdo = get_db_connection();
+$staffId = (int) ($_GET['id'] ?? 0);
+
+if ($staffId <= 0) {
+    flash_set('error', 'Invalid staff ID.');
+    redirect(app_url('/head_of_school/staff.php'));
+}
+
+// Fetch staff record
+$stmt = $pdo->prepare(
+    "SELECT st.*, u.first_name, u.last_name, u.username, u.email, u.phone, u.gender, u.photo_path, u.is_active,
+            r.role_name, r.role_id, d.department_name, d.department_id AS dept_id
+     FROM staff st
+     JOIN users u ON u.user_id = st.user_id
+     JOIN roles r ON r.role_id = u.role_id
+     LEFT JOIN departments d ON d.department_id = st.department_id
+     WHERE st.staff_id = :sid"
+);
+$stmt->execute(['sid' => $staffId]);
+$staff = $stmt->fetch();
+
+if (!$staff) {
+    flash_set('error', 'Staff record not found.');
+    redirect(app_url('/head_of_school/staff.php'));
+}
+
+// ---- Update Staff Details ----------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_details') {
+    csrf_verify();
+    $departmentId = (int) ($_POST['department_id'] ?? 0) ?: null;
+    $jobTitle = trim($_POST['job_title'] ?? '');
+    $employmentType = $_POST['employment_type'] ?? 'full_time';
+    $dateHired = $_POST['date_hired'] ?? null;
+    $basicSalary = (float) ($_POST['basic_salary'] ?? 0);
+    $educationLevel = trim($_POST['education_level'] ?? '');
+    $status = $_POST['status'] ?? 'active';
+
+    if ($jobTitle === '') {
+        flash_set('error', 'Job title is required.');
+    } else {
+        try {
+            $pdo->prepare(
+                'UPDATE staff SET department_id = :dept, job_title = :title, employment_type = :etype,
+                 date_hired = :hired, basic_salary = :salary, education_level = :edu, status = :status
+                 WHERE staff_id = :sid'
+            )->execute([
+                'dept' => $departmentId, 'title' => $jobTitle, 'etype' => $employmentType,
+                'hired' => $dateHired ?: null, 'salary' => $basicSalary, 'edu' => $educationLevel ?: null,
+                'status' => $status, 'sid' => $staffId,
+            ]);
+            audit_log('edit_staff', 'staff_management', 'staff', $staffId, "Updated staff details from profile page");
+            flash_set('success', 'Staff details updated successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] update staff details failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to update staff details.');
+        }
+    }
+    redirect(app_url('/head_of_school/staff_detail.php?id=' . $staffId));
+}
+
+// ---- Deactivate User Account -------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_user_active') {
+    csrf_verify();
+    $userId = (int) $staff['user_id'];
+    $newActive = $staff['is_active'] ? 0 : 1;
+    $pdo->prepare('UPDATE users SET is_active = :a WHERE user_id = :id')
+        ->execute(['a' => $newActive, 'id' => $userId]);
+    audit_log($newActive ? 'activate_user' : 'deactivate_user', 'user_management', 'users', $userId, "User toggled from staff profile");
+    flash_set('success', 'User account ' . ($newActive ? 'activated' : 'deactivated') . '.');
+    redirect(app_url('/head_of_school/staff_detail.php?id=' . $staffId));
+}
+
+$departments = $pdo->query('SELECT * FROM departments ORDER BY department_name')->fetchAll();
+
+$pageTitle = 'Staff Profile: ' . $staff['first_name'] . ' ' . $staff['last_name'];
+require APP_ROOT . '/includes/header.php';
+?>
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <h1 class="h3 mb-0"><i class="fa fa-id-badge text-gold me-2"></i>Staff Profile</h1>
+  <div class="d-flex gap-2">
+    <a href="<?= e(app_url('/head_of_school/staff.php')) ?>" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Back to Staff</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Profile Card -->
+  <div class="col-md-4">
+    <div class="card text-center">
+      <div class="card-body">
+        <div class="mb-3">
+          <?php if ($staff['photo_path'] && file_exists($staff['photo_path'])): ?>
+            <img src="<?= e(app_url($staff['photo_path'])) ?>" class="rounded-circle" width="120" height="120" style="object-fit:cover;" alt="">
+          <?php else: ?>
+            <div class="rounded-circle bg-light d-inline-flex align-items-center justify-content-center" style="width:120px;height:120px;">
+              <i class="fa fa-user fa-4x text-secondary"></i>
+            </div>
+          <?php endif; ?>
+        </div>
+        <h5 class="mb-1"><?= e($staff['first_name'] . ' ' . $staff['last_name']) ?></h5>
+        <p class="text-muted small mb-2"><code><?= e($staff['staff_no']) ?></code></p>
+        <span class="badge bg-secondary"><?= e(str_replace('_', ' ', $staff['role_name'])) ?></span>
+        <span class="badge bg-<?= $staff['status']==='active'?'success':($staff['status']==='on_leave'?'warning':'secondary') ?>">
+          <?= e(ucfirst(str_replace('_',' ',$staff['status']))) ?>
+        </span>
+        <hr>
+        <div class="text-start small">
+          <div class="mb-1"><strong>Username:</strong> <code><?= e($staff['username']) ?></code></div>
+          <div class="mb-1"><strong>Email:</strong> <?= e($staff['email'] ?: '-') ?></div>
+          <div class="mb-1"><strong>Phone:</strong> <?= e($staff['phone'] ?: '-') ?></div>
+        </div>
+        <form method="POST" class="mt-2" onsubmit="return confirm('Toggle user account active status?')">
+          <?php csrf_field(); ?>
+          <input type="hidden" name="action" value="toggle_user_active">
+          <button type="submit" class="btn btn-sm btn-outline-<?= $staff['is_active']?'danger':'success' ?> w-100">
+            <i class="fa fa-<?= $staff['is_active']?'ban':'check' ?> me-1"></i>
+            <?= $staff['is_active'] ? 'Deactivate User Account' : 'Activate User Account' ?>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Details & Edit Form -->
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0">Employment Details</h5></div>
+      <div class="card-body">
+        <form method="POST">
+          <?php csrf_field(); ?>
+          <input type="hidden" name="action" value="update_details">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Department</label>
+              <select name="department_id" class="form-select">
+                <option value="">-- None --</option>
+                <?php foreach ($departments as $d): ?>
+                  <option value="<?= (int) $d['department_id'] ?>" <?= (int) $staff['dept_id'] === (int) $d['department_id'] ? 'selected' : '' ?>>
+                    <?= e($d['department_name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Job Title <span class="required-mark">*</span></label>
+              <input type="text" name="job_title" class="form-control" required value="<?= e($staff['job_title']) ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Employment Type</label>
+              <select name="employment_type" class="form-select">
+                <option value="full_time" <?= $staff['employment_type']==='full_time'?'selected':''?>>Full Time</option>
+                <option value="part_time" <?= $staff['employment_type']==='part_time'?'selected':''?>>Part Time</option>
+                <option value="contract" <?= $staff['employment_type']==='contract'?'selected':''?>>Contract</option>
+                <option value="volunteer" <?= $staff['employment_type']==='volunteer'?'selected':''?>>Volunteer</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Status</label>
+              <select name="status" class="form-select">
+                <option value="active" <?= $staff['status']==='active'?'selected':''?>>Active</option>
+                <option value="on_leave" <?= $staff['status']==='on_leave'?'selected':''?>>On Leave</option>
+                <option value="suspended" <?= $staff['status']==='suspended'?'selected':''?>>Suspended</option>
+                <option value="terminated" <?= $staff['status']==='terminated'?'selected':''?>>Terminated</option>
+                <option value="retired" <?= $staff['status']==='retired'?'selected':''?>>Retired</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Date Hired</label>
+              <input type="date" name="date_hired" class="form-control" value="<?= e($staff['date_hired'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Basic Salary (TZS)</label>
+              <input type="number" name="basic_salary" class="form-control" min="0" step="1000" value="<?= e($staff['basic_salary'] ?: '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Education Level</label>
+              <select name="education_level" class="form-select">
+                <option value="">-- Select --</option>
+                <?php foreach (['Primary','Secondary','Certificate','Diploma',"Bachelor's Degree","Master's Degree",'PhD','Other'] as $opt): ?>
+                  <option value="<?= $opt ?>" <?= $staff['education_level'] === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary"><i class="fa fa-save me-1"></i> Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?php require APP_ROOT . '/includes/footer.php'; ?>
