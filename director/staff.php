@@ -1,7 +1,7 @@
 <?php
 /**
  * director/staff.php
- * Enhanced Staff & HR management: list, filter, onboard, detailed view,
+ * Enhanced Staff & HR management: list, filter, onboard, edit, delete,
  * document upload, and HR statistics.
  */
 require_once __DIR__ . '/../config/config.php';
@@ -10,6 +10,7 @@ require_role(['director', 'system_admin', 'head_of_school']);
 $pdo = get_db_connection();
 $error = '';
 
+// ---- Create Staff ----------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_staff') {
     csrf_verify();
 
@@ -33,8 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             $pdo->beginTransaction();
 
             $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
-            $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
-            $tempPassword = 'password';
+            $username = generate_username($pdo, $firstName, $lastName, $email);
+            $tempPassword = bin2hex(random_bytes(4));
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(
@@ -68,7 +69,143 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     }
 }
 
-// Handle document upload from the list page
+// ---- Edit Staff ------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_staff') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+    $departmentId = (int) ($_POST['department_id'] ?? 0) ?: null;
+    $jobTitle = trim($_POST['job_title'] ?? '');
+    $employmentType = $_POST['employment_type'] ?? 'full_time';
+    $dateHired = $_POST['date_hired'] ?? null;
+    $basicSalary = (float) ($_POST['basic_salary'] ?? 0);
+    $educationLevel = trim($_POST['education_level'] ?? '');
+
+    if ($staffId <= 0 || $jobTitle === '') {
+        flash_set('error', 'Staff ID and job title are required.');
+    } else {
+        try {
+            $pdo->prepare(
+                'UPDATE staff SET department_id = :dept, job_title = :title, employment_type = :etype,
+                 date_hired = :hired, basic_salary = :salary, education_level = :edu
+                 WHERE staff_id = :sid'
+            )->execute([
+                'dept' => $departmentId, 'title' => $jobTitle, 'etype' => $employmentType,
+                'hired' => $dateHired ?: null, 'salary' => $basicSalary, 'edu' => $educationLevel ?: null,
+                'sid' => $staffId,
+            ]);
+            audit_log('edit_staff', 'staff_management', 'staff', $staffId, "Edited staff record");
+            flash_set('success', 'Staff record updated successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] edit_staff failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to update staff record.');
+        }
+    }
+    redirect(app_url('/director/staff.php'));
+}
+
+// ---- Update Staff Status ---------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_status') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+    $newStatus = $_POST['status'] ?? '';
+
+    $allowedStatuses = ['active', 'on_leave', 'suspended', 'terminated', 'retired'];
+    if ($staffId <= 0 || !in_array($newStatus, $allowedStatuses)) {
+        flash_set('error', 'Invalid request parameters.');
+    } else {
+        $pdo->prepare('UPDATE staff SET status = :s WHERE staff_id = :id')
+            ->execute(['s' => $newStatus, 'id' => $staffId]);
+        audit_log('update_staff_status', 'staff_management', 'staff', $staffId, "Status changed to {$newStatus}");
+        flash_set('success', 'Staff status updated successfully.');
+    }
+    redirect(app_url('/director/staff.php'));
+}
+
+// ---- Delete Staff ----------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_staff') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+
+    if ($staffId <= 0) {
+        flash_set('error', 'Invalid staff ID.');
+        redirect(app_url('/director/staff.php'));
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // Get staff record for file cleanup and user_id
+        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
+        $stmt->execute(['id' => $staffId]);
+        $record = $stmt->fetch();
+
+        if (!$record) {
+            throw new Exception('Staff record not found.');
+        }
+
+        // Check for dependencies that would prevent deletion
+        $deps = [];
+        $check = $pdo->prepare("SELECT COUNT(*) FROM class_subjects WHERE teacher_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'class subject assignments';
+
+        $check = $pdo->prepare("SELECT COUNT(*) FROM classes WHERE class_teacher_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'class teacher assignments';
+
+        $check = $pdo->prepare("SELECT COUNT(*) FROM departments WHERE department_head_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'department head assignments';
+
+        if (!empty($deps)) {
+            $pdo->rollBack();
+            flash_set('error', 'Cannot delete staff: This staff member has ' . implode(', ', $deps) . '. Please reassign or terminate them first.');
+            redirect(app_url('/director/staff.php'));
+        }
+
+        // Delete associated files from disk
+        $files = $pdo->prepare("SELECT file_path FROM staff_documents WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+
+        $files = $pdo->prepare("SELECT file_path FROM staff_certificates WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+
+        $files = $pdo->prepare("SELECT file_path FROM staff_qualifications WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+
+        // Delete staff record (CASCADE will remove: staff_documents, staff_certificates, staff_qualifications,
+        // staff_emergency_contacts, staff_leave, staff_trainings, staff_performance, and users)
+        $staffNo = $record['staff_no'];
+        $staffName = $record['first_name'] . ' ' . $record['last_name'];
+        $pdo->prepare("DELETE FROM staff WHERE staff_id = :id")->execute(['id' => $staffId]);
+
+        $pdo->commit();
+        audit_log('delete_staff', 'staff_management', 'staff', $staffId, "Deleted staff {$staffNo} - {$staffName}");
+        flash_set('success', "Staff ({$staffNo}) {$staffName} has been permanently deleted.");
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        error_log('[ASMS] delete_staff failed: ' . $e->getMessage());
+        flash_set('error', 'Failed to delete staff: ' . $e->getMessage());
+    }
+    redirect(app_url('/director/staff.php'));
+}
+
+// ---- Quick Upload Document -------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'quick_upload_cv') {
     csrf_verify();
     $staffId = (int) ($_POST['staff_id'] ?? 0);
@@ -347,22 +484,104 @@ require APP_ROOT . '/includes/header.php';
               <span class="badge bg-<?= $s['qual_count'] > 0 ? 'success' : 'secondary' ?>" title="Qualifications">📚 <?= (int) $s['qual_count'] ?></span>
             </td>
             <td>
-              <?php
-                $statusMap = ['active'=>'success','on_leave'=>'warning','suspended'=>'danger','terminated'=>'dark','retired'=>'secondary'];
-                $statusBadge = $statusMap[$s['status']] ?? 'secondary';
-              ?>
-              <span class="badge bg-<?= $statusBadge ?>"><?= e(ucfirst(str_replace('_',' ',$s['status']))) ?></span>
+              <form method="POST" class="d-inline status-form">
+                <?php csrf_field(); ?>
+                <input type="hidden" name="action" value="update_status">
+                <input type="hidden" name="staff_id" value="<?= (int) $s['staff_id'] ?>">
+                <select name="status" class="form-select form-select-sm" style="min-width:100px;" onchange="if(confirm('Change status for <?= e($s['first_name'] . ' ' . $s['last_name']) ?> to ' + this.value + '?')) this.form.submit()">
+                  <option value="active" <?= $s['status']==='active' ? 'selected' : '' ?>>Active</option>
+                  <option value="on_leave" <?= $s['status']==='on_leave' ? 'selected' : '' ?>>On Leave</option>
+                  <option value="suspended" <?= $s['status']==='suspended' ? 'selected' : '' ?>>Suspended</option>
+                  <option value="terminated" <?= $s['status']==='terminated' ? 'selected' : '' ?>>Terminated</option>
+                  <option value="retired" <?= $s['status']==='retired' ? 'selected' : '' ?>>Retired</option>
+                </select>
+              </form>
             </td>
             <td class="text-center">
               <div class="btn-group action-btn-group">
                 <a href="<?= e(app_url('/director/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="btn btn-sm btn-outline-primary" title="View Profile"><i class="fa fa-eye"></i></a>
+                <button type="button" class="btn btn-sm btn-outline-warning" title="Edit Staff"
+                  data-bs-toggle="modal" data-bs-target="#editStaffModal<?= (int) $s['staff_id'] ?>">
+                  <i class="fa fa-edit"></i>
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" title="Upload Document"
                   onclick="document.getElementById('quickStaffId').value='<?= (int) $s['staff_id'] ?>';document.getElementById('quickStaffName').textContent='<?= e($s['first_name'] . ' ' . $s['last_name']) ?>';new bootstrap.Modal(document.getElementById('quickUploadModal')).show();">
                   <i class="fa fa-upload"></i>
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" title="Delete Staff"
+                  onclick="confirmDeleteStaff(<?= (int) $s['staff_id'] ?>, '<?= e($s['first_name'] . ' ' . $s['last_name']) ?>')">
+                  <i class="fa fa-trash"></i>
+                </button>
               </div>
             </td>
           </tr>
+
+        <!-- Edit Staff Modal (inline per row) -->
+        <div class="modal fade" id="editStaffModal<?= (int) $s['staff_id'] ?>" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <form method="POST">
+                <?php csrf_field(); ?>
+                <input type="hidden" name="action" value="edit_staff">
+                <input type="hidden" name="staff_id" value="<?= (int) $s['staff_id'] ?>">
+                <div class="modal-header">
+                  <h5 class="modal-title">Edit Staff: <?= e($s['first_name'] . ' ' . $s['last_name']) ?></h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-2">
+                    <label class="form-label">Department</label>
+                    <select name="department_id" class="form-select">
+                      <option value="">-- None --</option>
+                      <?php foreach ($departments as $d): ?>
+                        <option value="<?= (int) $d['department_id'] ?>" <?= (int) $s['department_id'] === (int) $d['department_id'] ? 'selected' : '' ?>><?= e($d['department_name']) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Job Title <span class="required-mark">*</span></label>
+                    <input type="text" name="job_title" class="form-control" required value="<?= e($s['job_title']) ?>">
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label">Employment Type</label>
+                      <select name="employment_type" class="form-select">
+                        <option value="full_time" <?= $s['employment_type']==='full_time'?'selected':''?>>Full Time</option>
+                        <option value="part_time" <?= $s['employment_type']==='part_time'?'selected':''?>>Part Time</option>
+                        <option value="contract" <?= $s['employment_type']==='contract'?'selected':''?>>Contract</option>
+                        <option value="volunteer" <?= $s['employment_type']==='volunteer'?'selected':''?>>Volunteer</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label">Date Hired</label>
+                      <input type="date" name="date_hired" class="form-control" value="<?= e($s['date_hired'] ?? '') ?>">
+                    </div>
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label">Basic Salary (TZS)</label>
+                      <input type="number" name="basic_salary" class="form-control" min="0" step="1000" value="<?= e($s['basic_salary'] ?: '') ?>">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label">Education Level</label>
+                      <select name="education_level" class="form-select">
+                        <option value="">-- Select --</option>
+                        <?php foreach (['Primary','Secondary','Certificate','Diploma',"Bachelor's Degree","Master's Degree",'PhD','Other'] as $opt): ?>
+                          <option value="<?= $opt ?>" <?= $s['education_level'] === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
         <?php endforeach; ?>
         <?php if (empty($staffList)): ?>
           <tr><td colspan="7" class="text-center text-muted py-4">
@@ -536,5 +755,39 @@ require APP_ROOT . '/includes/header.php';
     </div>
   </div>
 </div>
+
+<!-- Delete Staff Confirmation Modal -->
+<div class="modal fade" id="deleteStaffModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" id="deleteStaffForm">
+        <?php csrf_field(); ?>
+        <input type="hidden" name="action" value="delete_staff">
+        <input type="hidden" name="staff_id" id="deleteStaffId" value="0">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title"><i class="fa fa-exclamation-triangle me-1"></i> Delete Staff</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2"><strong>Are you sure you want to permanently delete this staff member?</strong></p>
+          <p class="text-danger small mb-0"><i class="fa fa-info-circle"></i> This action will also delete all associated documents, certificates, qualifications, leave records, and the user account. This cannot be undone.</p>
+          <p class="mt-2 mb-0">Staff: <strong id="deleteStaffName"></strong></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger"><i class="fa fa-trash me-1"></i> Permanently Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function confirmDeleteStaff(staffId, staffName) {
+  document.getElementById('deleteStaffId').value = staffId;
+  document.getElementById('deleteStaffName').textContent = staffName;
+  new bootstrap.Modal(document.getElementById('deleteStaffModal')).show();
+}
+</script>
 
 <?php require APP_ROOT . '/includes/footer.php'; ?>

@@ -20,6 +20,7 @@ $menus = [
         ['School Calendar', '/director/calendar.php', 'fa-calendar-alt'],
         ['Performance Reports', '/director/performance_reports.php', 'fa-chart-bar'],
         ['User & Role Management', '/director/users.php', 'fa-users-cog'],
+        ['Deletion Requests', '/director/deletion_requests.php', 'fa-trash-alt'],
         ['Audit & Security Logs', '/director/audit_logs.php', 'fa-shield-alt'],
         ['System Settings', '/director/system_admin.php', 'fa-cogs'],
         ['Announcements', '/communication/announcements.php', 'fa-bullhorn'],
@@ -40,6 +41,7 @@ $menus = [
         ['Discipline Records', '/head_of_school/discipline.php', 'fa-gavel'],
         ['School Reports', '/head_of_school/reports.php', 'fa-file-alt'],
         ['Parent Accounts', '/academic/parent_accounts.php', 'fa-users'],
+        ['Deletion Requests', '/director/deletion_requests.php', 'fa-trash-alt'],
         ['Announcements', '/communication/announcements.php', 'fa-bullhorn'],
     ],
     'bursar' => [
@@ -57,6 +59,7 @@ $menus = [
         ['Dashboard', '/academic/dashboard.php', 'fa-book'],
         ['Students', '/academic/students.php', 'fa-user-graduate'],
         ['Teachers Management', '/academic/teachers.php', 'fa-chalkboard-teacher'],
+        ['Staff Directory', '/academic/teachers.php?show_all=1', 'fa-id-badge'],
         ['Subjects', '/academic/subjects.php', 'fa-book'],
         ['Class Levels', '/academic/class_levels.php', 'fa-layer-group'],
         ['Classes & Subjects', '/academic/classes.php', 'fa-chalkboard'],

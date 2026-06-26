@@ -57,6 +57,71 @@ function flash_render(): void
 }
 
 /**
+ * Generate a unique username for a new user.
+ *
+ * Priority:
+ *   1. If an email is provided, use the FULL email address as the username.
+ *   2. If no email, generate from firstname.lastname and append a number if needed.
+ *
+ * The generated username is guaranteed to be unique in the users table.
+ *
+ * @param PDO    $pdo       Database connection
+ * @param string $firstName First name
+ * @param string $lastName  Last name
+ * @param string $email     Email address (optional)
+ * @return string           A unique, valid username
+ */
+function generate_username(PDO $pdo, string $firstName, string $lastName, string $email = ''): string
+{
+    // Use the FULL email as the username if provided
+    if ($email !== '') {
+        $username = strtolower(trim($email));
+        // Check uniqueness - if exists, append a number
+        $base = $username;
+        $suffix = '';
+        $attempts = 0;
+        do {
+            $usernameToCheck = $base . $suffix;
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM users WHERE username = :u');
+            $stmt->execute(['u' => $usernameToCheck]);
+            $exists = (int) $stmt->fetchColumn() > 0;
+            if (!$exists) {
+                return $usernameToCheck;
+            }
+            $attempts++;
+            $suffix = $attempts;
+        } while ($attempts < 100);
+    }
+
+    // Fallback: generate from firstname.lastname
+    $base = strtolower(
+        preg_replace('/[^a-z0-9]/', '', $firstName) . '.' .
+        preg_replace('/[^a-z0-9]/', '', $lastName)
+    );
+    $base = trim($base, '.');
+    if ($base === '') {
+        $base = 'user';
+    }
+
+    $suffix = '';
+    $attempts = 0;
+    do {
+        $username = $base . $suffix;
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM users WHERE username = :u');
+        $stmt->execute(['u' => $username]);
+        $exists = (int) $stmt->fetchColumn() > 0;
+        if (!$exists) {
+            return $username;
+        }
+        $attempts++;
+        $suffix = $attempts;
+    } while ($attempts < 100);
+
+    // Ultimate fallback: use random number
+    return $base . random_int(1000, 9999);
+}
+
+/**
  * Generate the next sequential human-friendly ID, e.g. STU-2026-0001.
  * Uses the id_sequences table with a row lock (FOR UPDATE) to stay safe
  * under concurrency.

@@ -39,8 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             $parentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='parent'")->fetch()['role_id'];
 
             // Create user account
-            $username = strtolower($guardian['first_name'][0] . $guardian['last_name'] . random_int(10, 99));
-            $tempPassword = 'password';
+            $username = generate_username($pdo, $guardian['first_name'], $guardian['last_name'], $email ?: $guardian['email'] ?? '');
+            $tempPassword = bin2hex(random_bytes(4));
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(

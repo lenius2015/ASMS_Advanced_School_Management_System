@@ -43,6 +43,90 @@ if ($action === 'download_cert' && $staffId > 0) {
     redirect(app_url('/director/staff_detail.php?id=' . $staffId));
 }
 
+// Handle document delete
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_document') {
+    csrf_verify();
+    $docId = (int) ($_POST['document_id'] ?? 0);
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+
+    if ($docId <= 0 || $staffId <= 0) {
+        flash_set('error', 'Invalid request.');
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT file_path FROM staff_documents WHERE document_id = :id AND staff_id = :sid");
+            $stmt->execute(['id' => $docId, 'sid' => $staffId]);
+            $doc = $stmt->fetch();
+            if ($doc && $doc['file_path'] && file_exists($doc['file_path'])) {
+                @unlink($doc['file_path']);
+            }
+            $pdo->prepare("DELETE FROM staff_documents WHERE document_id = :id AND staff_id = :sid")
+                ->execute(['id' => $docId, 'sid' => $staffId]);
+            audit_log('delete_staff_document', 'staff_management', 'staff_documents', $docId, "Deleted document from staff #{$staffId}");
+            flash_set('success', 'Document deleted successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] delete document failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to delete document.');
+        }
+    }
+    redirect(app_url('/director/staff_detail.php?id=' . $staffId));
+}
+
+// Handle certificate delete
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_certificate') {
+    csrf_verify();
+    $certId = (int) ($_POST['certificate_id'] ?? 0);
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+
+    if ($certId <= 0 || $staffId <= 0) {
+        flash_set('error', 'Invalid request.');
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT file_path FROM staff_certificates WHERE certificate_id = :id AND staff_id = :sid");
+            $stmt->execute(['id' => $certId, 'sid' => $staffId]);
+            $cert = $stmt->fetch();
+            if ($cert && $cert['file_path'] && file_exists($cert['file_path'])) {
+                @unlink($cert['file_path']);
+            }
+            $pdo->prepare("DELETE FROM staff_certificates WHERE certificate_id = :id AND staff_id = :sid")
+                ->execute(['id' => $certId, 'sid' => $staffId]);
+            audit_log('delete_staff_certificate', 'staff_management', 'staff_certificates', $certId, "Deleted certificate from staff #{$staffId}");
+            flash_set('success', 'Certificate deleted successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] delete certificate failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to delete certificate.');
+        }
+    }
+    redirect(app_url('/director/staff_detail.php?id=' . $staffId));
+}
+
+// Handle qualification delete
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_qualification') {
+    csrf_verify();
+    $qualId = (int) ($_POST['qualification_id'] ?? 0);
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+
+    if ($qualId <= 0 || $staffId <= 0) {
+        flash_set('error', 'Invalid request.');
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT file_path FROM staff_qualifications WHERE qualification_id = :id AND staff_id = :sid");
+            $stmt->execute(['id' => $qualId, 'sid' => $staffId]);
+            $qual = $stmt->fetch();
+            if ($qual && $qual['file_path'] && file_exists($qual['file_path'])) {
+                @unlink($qual['file_path']);
+            }
+            $pdo->prepare("DELETE FROM staff_qualifications WHERE qualification_id = :id AND staff_id = :sid")
+                ->execute(['id' => $qualId, 'sid' => $staffId]);
+            audit_log('delete_staff_qualification', 'staff_management', 'staff_qualifications', $qualId, "Deleted qualification from staff #{$staffId}");
+            flash_set('success', 'Qualification deleted successfully.');
+        } catch (Throwable $e) {
+            error_log('[ASMS] delete qualification failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to delete qualification.');
+        }
+    }
+    redirect(app_url('/director/staff_detail.php?id=' . $staffId));
+}
+
 // Handle document upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_document') {
     csrf_verify();
@@ -501,7 +585,16 @@ $badgeStatus = function($status): string {
                 <td class="small"><?= e(format_date($d['created_at'])) ?></td>
                 <td class="small text-muted"><?= e($d['notes'] ?: '-') ?></td>
                 <td>
-                  <a href="?id=<?= $staffId ?>&action=download_doc&doc_id=<?= (int) $d['document_id'] ?>" class="btn btn-sm btn-outline-secondary" title="Download"><i class="fa fa-download"></i></a>
+                  <div class="btn-group btn-group-sm">
+                    <a href="?id=<?= $staffId ?>&action=download_doc&doc_id=<?= (int) $d['document_id'] ?>" class="btn btn-sm btn-outline-secondary" title="Download"><i class="fa fa-download"></i></a>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Delete document "<?= e($d['document_name']) ?>"? This cannot be undone.')">
+                      <?php csrf_field(); ?>
+                      <input type="hidden" name="action" value="delete_document">
+                      <input type="hidden" name="document_id" value="<?= (int) $d['document_id'] ?>">
+                      <input type="hidden" name="staff_id" value="<?= $staffId ?>">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -536,11 +629,20 @@ $badgeStatus = function($status): string {
                 <td class="small"><?= e(format_date($c['expiry_date'])) ?></td>
                 <td><?= $c['verified'] ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-warning">Pending</span>' ?></td>
                 <td>
+                  <div class="btn-group btn-group-sm">
                   <?php if ($c['file_path'] && file_exists($c['file_path'])): ?>
                     <a href="?id=<?= $staffId ?>&action=download_cert&cert_id=<?= (int) $c['certificate_id'] ?>" class="btn btn-sm btn-outline-primary"><i class="fa fa-download"></i></a>
                   <?php else: ?>
                     <span class="text-muted">No file</span>
                   <?php endif; ?>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Delete certificate "<?= e($c['certificate_name']) ?>"? This cannot be undone.')">
+                      <?php csrf_field(); ?>
+                      <input type="hidden" name="action" value="delete_certificate">
+                      <input type="hidden" name="certificate_id" value="<?= (int) $c['certificate_id'] ?>">
+                      <input type="hidden" name="staff_id" value="<?= $staffId ?>">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -574,11 +676,20 @@ $badgeStatus = function($status): string {
                 <td><?= e($q['year_obtained'] ?? '-') ?></td>
                 <td><?= e($q['grade'] ?? '-') ?></td>
                 <td>
+                  <div class="btn-group btn-group-sm">
                   <?php if ($q['file_path'] && file_exists($q['file_path'])): ?>
                     <a href="<?= e(app_url($q['file_path'])) ?>" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fa fa-eye"></i></a>
                   <?php else: ?>
                     <span class="text-muted">-</span>
                   <?php endif; ?>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Delete qualification "<?= e($q['qualification_name']) ?>"? This cannot be undone.')">
+                      <?php csrf_field(); ?>
+                      <input type="hidden" name="action" value="delete_qualification">
+                      <input type="hidden" name="qualification_id" value="<?= (int) $q['qualification_id'] ?>">
+                      <input type="hidden" name="staff_id" value="<?= $staffId ?>">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>

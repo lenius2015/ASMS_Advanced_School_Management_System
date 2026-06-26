@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             $pdo->beginTransaction();
 
             $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
-            $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
-            $tempPassword = 'password';
+            $username = generate_username($pdo, $firstName, $lastName, $email);
+            $tempPassword = bin2hex(random_bytes(4));
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(
@@ -115,6 +115,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
             ->execute(['s' => $newStatus, 'id' => $staffId]);
         audit_log('update_staff_status', 'staff_management', 'staff', $staffId, "Status changed to {$newStatus}");
         flash_set('success', 'Staff status updated successfully.');
+    }
+    redirect(app_url('/head_of_school/staff.php'));
+}
+
+// ---- Delete Staff -----------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_staff') {
+    csrf_verify();
+    $staffId = (int) ($_POST['staff_id'] ?? 0);
+
+    if ($staffId <= 0) {
+        flash_set('error', 'Invalid staff ID.');
+        redirect(app_url('/head_of_school/staff.php'));
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // Get staff record for file cleanup and user_id
+        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
+        $stmt->execute(['id' => $staffId]);
+        $record = $stmt->fetch();
+
+        if (!$record) {
+            throw new Exception('Staff record not found.');
+        }
+
+        // Check for dependencies that would prevent deletion
+        $deps = [];
+        $check = $pdo->prepare("SELECT COUNT(*) FROM class_subjects WHERE teacher_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'class subject assignments';
+
+        $check = $pdo->prepare("SELECT COUNT(*) FROM classes WHERE class_teacher_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'class teacher assignments';
+
+        $check = $pdo->prepare("SELECT COUNT(*) FROM departments WHERE department_head_id = :uid");
+        $check->execute(['uid' => $record['user_id']]);
+        if ((int) $check->fetchColumn() > 0) $deps[] = 'department head assignments';
+
+        if (!empty($deps)) {
+            $pdo->rollBack();
+            flash_set('error', 'Cannot delete staff: This staff member has ' . implode(', ', $deps) . '. Please reassign or terminate them first.');
+            redirect(app_url('/head_of_school/staff.php'));
+        }
+
+        // Delete associated files from disk
+        $files = $pdo->prepare("SELECT file_path FROM staff_documents WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+        $files = $pdo->prepare("SELECT file_path FROM staff_certificates WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+        $files = $pdo->prepare("SELECT file_path FROM staff_qualifications WHERE staff_id = :sid");
+        $files->execute(['sid' => $staffId]);
+        foreach ($files->fetchAll() as $f) {
+            if ($f['file_path'] && file_exists($f['file_path'])) {
+                @unlink($f['file_path']);
+            }
+        }
+
+        $staffNo = $record['staff_no'];
+        $staffName = $record['first_name'] . ' ' . $record['last_name'];
+        $pdo->prepare("DELETE FROM staff WHERE staff_id = :id")->execute(['id' => $staffId]);
+
+        $pdo->commit();
+        audit_log('delete_staff', 'staff_management', 'staff', $staffId, "Deleted staff {$staffNo} - {$staffName}");
+        flash_set('success', "Staff ({$staffNo}) {$staffName} has been permanently deleted.");
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        error_log('[ASMS] delete_staff failed: ' . $e->getMessage());
+        flash_set('error', 'Failed to delete staff: ' . $e->getMessage());
     }
     redirect(app_url('/head_of_school/staff.php'));
 }
@@ -318,10 +398,14 @@ require APP_ROOT . '/includes/header.php';
               <div class="btn-group btn-group-sm">
                 <a href="<?= e(app_url('/head_of_school/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="btn btn-outline-primary" title="View Profile"><i class="fa fa-eye"></i></a>
                 <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#editStaffModal<?= (int) $s['staff_id'] ?>" title="Edit Staff"><i class="fa fa-edit"></i></button>
+                <button type="button" class="btn btn-outline-danger" title="Delete Staff"
+                  onclick="confirmDeleteStaff(<?= (int) $s['staff_id'] ?>, '<?= e($s['first_name'] . ' ' . $s['last_name']) ?>')">
+                  <i class="fa fa-trash"></i>
+                </button>
               </div>
             </td>
           </tr>
-        
+
         <!-- Edit Staff Modal (inline per row) -->
         <div class="modal fade" id="editStaffModal<?= (int) $s['staff_id'] ?>" tabindex="-1">
           <div class="modal-dialog">
@@ -387,7 +471,7 @@ require APP_ROOT . '/includes/header.php';
             </div>
           </div>
         </div>
-        
+
         <?php endforeach; ?>
         <?php if (empty($staffList)): ?><tr><td colspan="7" class="text-center text-muted py-4">No staff found.</td></tr><?php endif; ?>
       </tbody>
@@ -464,5 +548,39 @@ require APP_ROOT . '/includes/header.php';
     </div>
   </div>
 </div>
+
+<!-- Delete Staff Confirmation Modal -->
+<div class="modal fade" id="deleteStaffModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" id="deleteStaffForm">
+        <?php csrf_field(); ?>
+        <input type="hidden" name="action" value="delete_staff">
+        <input type="hidden" name="staff_id" id="deleteStaffId" value="0">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title"><i class="fa fa-exclamation-triangle me-1"></i> Delete Staff</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2"><strong>Are you sure you want to permanently delete this staff member?</strong></p>
+          <p class="text-danger small mb-0"><i class="fa fa-info-circle"></i> This action will also delete all associated documents, certificates, qualifications, leave records, and the user account. This cannot be undone.</p>
+          <p class="mt-2 mb-0">Staff: <strong id="deleteStaffName"></strong></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger"><i class="fa fa-trash me-1"></i> Permanently Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function confirmDeleteStaff(staffId, staffName) {
+  document.getElementById('deleteStaffId').value = staffId;
+  document.getElementById('deleteStaffName').textContent = staffName;
+  new bootstrap.Modal(document.getElementById('deleteStaffModal')).show();
+}
+</script>
 
 <?php require APP_ROOT . '/includes/footer.php'; ?>

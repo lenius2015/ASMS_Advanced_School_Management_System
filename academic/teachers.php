@@ -55,8 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reass
 $search = trim($_GET['q'] ?? '');
 $deptFilter = (int) ($_GET['department_id'] ?? 0);
 $statusFilter = $_GET['status'] ?? '';
+$showAll = isset($_GET['show_all']) && $_GET['show_all'] === '1';
 
-// Get all teachers (staff with teaching roles)
+// Get all teachers (staff with teaching roles) - or all staff if show_all is set
 $sql = "SELECT st.*, u.first_name, u.last_name, u.username, u.email, u.phone, u.gender, u.photo_path,
                r.role_name, d.department_name,
                (SELECT COUNT(*) FROM staff_documents WHERE staff_id = st.staff_id) AS doc_count,
@@ -65,8 +66,11 @@ $sql = "SELECT st.*, u.first_name, u.last_name, u.username, u.email, u.phone, u.
         JOIN users u ON u.user_id = st.user_id
         JOIN roles r ON r.role_id = u.role_id
         LEFT JOIN departments d ON d.department_id = st.department_id
-        WHERE r.role_name IN ('subject_teacher', 'class_teacher', 'department_head')";
+        WHERE 1=1";
 $params = [];
+if (!$showAll) {
+    $sql .= " AND r.role_name IN ('subject_teacher', 'class_teacher', 'department_head')";
+}
 if ($search !== '') {
     $sql .= ' AND (u.first_name LIKE :s1 OR u.last_name LIKE :s2 OR st.staff_no LIKE :s3 OR st.job_title LIKE :s4)';
     $params['s1'] = $params['s2'] = $params['s3'] = $params['s4'] = "%{$search}%";
@@ -185,8 +189,14 @@ require APP_ROOT . '/includes/header.php';
                     <option value="retired" <?= $statusFilter === 'retired' ? 'selected' : '' ?>>Retired</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <button class="btn btn-sm btn-outline-primary w-100"><i class="fa fa-search"></i> Filter</button>
+            </div>
+            <div class="col-md-1 d-flex align-items-center">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="showAllStaff" name="show_all" value="1" <?= $showAll ? 'checked' : '' ?> onchange="this.form.submit()">
+                    <label class="form-check-label small" for="showAllStaff">All Staff</label>
+                </div>
             </div>
         </form>
     </div>

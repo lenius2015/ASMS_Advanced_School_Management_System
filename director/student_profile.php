@@ -71,6 +71,11 @@ $disciplineStmt = $pdo->prepare(
 $disciplineStmt->execute(['id' => $studentId]);
 $disciplineRecords = $disciplineStmt->fetchAll();
 
+// Check deletion request status
+$delReqStmt = $pdo->prepare("SELECT * FROM deletion_requests WHERE student_id = :sid ORDER BY created_at DESC LIMIT 1");
+$delReqStmt->execute(['sid' => $studentId]);
+$deletionRequest = $delReqStmt->fetch();
+
 $pageTitle = 'Student Profile';
 require APP_ROOT . '/includes/header.php';
 ?>
@@ -116,6 +121,39 @@ require APP_ROOT . '/includes/header.php';
         <p class="mb-0"><strong>Emergency Contact:</strong> <?= e($student['emergency_contact_name'] ?: '-') ?> <?= $student['emergency_contact_phone'] ? '(' . e($student['emergency_contact_phone']) . ')' : '' ?></p>
       </div>
     </div>
+
+    <?php if (in_array(current_role(), ['director', 'system_admin', 'head_of_school'])): ?>
+    <div class="card mb-4">
+      <div class="card-header bg-danger text-white">Danger Zone</div>
+      <div class="card-body text-center">
+        <?php if ($deletionRequest && $deletionRequest['status'] === 'pending'): ?>
+          <span class="badge bg-warning text-dark mb-2 d-block">
+            <i class="fa fa-clock me-1"></i> Deletion Pending Review
+          </span>
+          <div class="small text-muted">
+            Requested: <?= e(date('d M Y, H:i', strtotime($deletionRequest['created_at']))) ?><br>
+            Reason: <?= e($deletionRequest['reason']) ?>
+          </div>
+        <?php elseif ($deletionRequest && $deletionRequest['status'] === 'approved'): ?>
+          <span class="badge bg-danger mb-2 d-block">
+            <i class="fa fa-check-circle me-1"></i> Deletion Approved
+          </span>
+        <?php elseif ($deletionRequest && $deletionRequest['status'] === 'rejected'): ?>
+          <span class="badge bg-secondary mb-2 d-block">
+            <i class="fa fa-times-circle me-1"></i> Deletion Rejected
+          </span>
+          <?php if ($deletionRequest['reviewer_remarks']): ?>
+            <div class="small text-muted">Remarks: <?= e($deletionRequest['reviewer_remarks']) ?></div>
+          <?php endif; ?>
+        <?php else: ?>
+          <p class="small text-muted mb-2">Permanently remove this student from the system.</p>
+          <a href="<?= e(app_url('/director/delete_student_request.php?id=' . $studentId)) ?>" class="btn btn-outline-danger btn-sm">
+            <i class="fa fa-trash me-1"></i> Request Deletion
+          </a>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php endif; ?>
 
     <div class="card">
       <div class="card-header">Guardians</div>

@@ -60,9 +60,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                 ]);
 
                 $newUserId = (int) $pdo->lastInsertId();
-                audit_log('create_user', 'user_management', 'users', $newUserId, "Created admin user {$username} ({$allowedRole['role_name']})");
 
-                flash_set('success', "User '{$username}' created. Temporary password: {$tempPassword} (share this with the user securely; they must change it on first login).");
+                // Also create a staff record so this admin appears in staff management pages
+                $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
+                $jobTitle = match ($allowedRole['role_name']) {
+                    'director'      => 'School Director',
+                    'system_admin'  => 'System Administrator',
+                    'head_of_school'=> 'Head of School',
+                    default         => 'Administrator',
+                };
+                $pdo->prepare(
+                    'INSERT INTO staff (user_id, staff_no, department_id, job_title, employment_type, date_hired, status)
+                     VALUES (:uid, :sno, NULL, :title, :etype, CURDATE(), :status)'
+                )->execute([
+                    'uid'    => $newUserId,
+                    'sno'    => $staffNo,
+                    'title'  => $jobTitle,
+                    'etype'  => 'full_time',
+                    'status' => 'active',
+                ]);
+
+                audit_log('create_user', 'user_management', 'users', $newUserId, "Created admin user {$username} ({$allowedRole['role_name']}) with staff record {$staffNo}");
+
+                flash_set('success', "User '{$username}' created. Staff number: {$staffNo}. Temporary password: {$tempPassword} (share this with the user securely; they must change it on first login).");
                 redirect(app_url('/director/users.php'));
             }
         }
@@ -96,8 +116,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
 
             // Create user account
             $parentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='parent'")->fetch()['role_id'];
-            $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
-            $tempPassword = 'password';
+            $username = generate_username($pdo, $firstName, $lastName, $email);
+            $tempPassword = bin2hex(random_bytes(4));
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(
@@ -166,8 +186,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             }
 
             $studentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='student'")->fetch()['role_id'];
-            $username = strtolower($student['first_name'][0] . $student['last_name'] . random_int(10, 99));
-            $tempPassword = 'password';
+            $username = generate_username($pdo, $student['first_name'], $student['last_name']);
+            $tempPassword = bin2hex(random_bytes(4));
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(
@@ -261,8 +281,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             // Don't create user if staff doesn't have a user_id in staff table (this means no linked user)
             if (empty($staff['user_id'])) {
                 // Create user account
-                $username = strtolower($staff['first_name'][0] . $staff['last_name'] . random_int(10, 99));
-                $tempPassword = 'password';
+                $username = generate_username($pdo, $staff['first_name'], $staff['last_name'], $staff['email'] ?? '');
+                $tempPassword = bin2hex(random_bytes(4));
                 $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
                 $pdo->prepare(
