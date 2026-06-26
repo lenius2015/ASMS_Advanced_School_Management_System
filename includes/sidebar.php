@@ -58,6 +58,7 @@ $menus = [
         ['Students', '/academic/students.php', 'fa-user-graduate'],
         ['Teachers Management', '/academic/teachers.php', 'fa-chalkboard-teacher'],
         ['Subjects', '/academic/subjects.php', 'fa-book'],
+        ['Class Levels', '/academic/class_levels.php', 'fa-layer-group'],
         ['Classes & Subjects', '/academic/classes.php', 'fa-chalkboard'],
         ['Attendance Overview', '/academic/attendance_overview.php', 'fa-calendar-check'],
         ['Lesson Reports', '/academic/lesson_reports.php', 'fa-chalkboard-teacher'],

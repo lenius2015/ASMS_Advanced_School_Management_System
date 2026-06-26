@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
 
             $admissionNo = generate_sequential_id($pdo, 'STU', (int) date('Y'));
             $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
-            $tempPassword = 'Student@' . random_int(1000, 9999);
+            $tempPassword = 'password';
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
             $studentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='student'")->fetch()['role_id'];
 

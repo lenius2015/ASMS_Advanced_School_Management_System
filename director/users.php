@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             if ($check->fetch()) {
                 $error = 'That username is already taken. Please choose another.';
             } else {
-                $tempPassword = 'Welcome@' . random_int(1000, 9999);
+                $tempPassword = 'password';
                 $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
                 $stmt = $pdo->prepare(
@@ -67,6 +67,132 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             }
         }
     }
+}
+
+// ---- Handle Creating Parent User Directly ----------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_parent_direct') {
+    csrf_verify();
+    $firstName = trim($_POST['first_name'] ?? '');
+    $lastName  = trim($_POST['last_name'] ?? '');
+    $email     = trim($_POST['email'] ?? '');
+    $phone     = trim($_POST['phone'] ?? '');
+    $relationship = $_POST['relationship'] ?? 'guardian';
+    $linkedStudentIds = isset($_POST['student_ids']) ? array_map('intval', (array) $_POST['student_ids']) : [];
+
+    if ($firstName === '' || $lastName === '') {
+        flash_set('error', 'Parent first and last name are required.');
+    } else {
+        try {
+            $pdo->beginTransaction();
+
+            // Create guardian record
+            $pdo->prepare(
+                'INSERT INTO guardians (first_name, last_name, relationship, phone, email) VALUES (:fn, :ln, :rel, :phone, :email)'
+            )->execute([
+                'fn' => $firstName, 'ln' => $lastName,
+                'rel' => $relationship, 'phone' => $phone ?: null, 'email' => $email ?: null,
+            ]);
+            $guardianId = (int) $pdo->lastInsertId();
+
+            // Create user account
+            $parentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='parent'")->fetch()['role_id'];
+            $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
+            $tempPassword = 'password';
+            $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
+
+            $pdo->prepare(
+                'INSERT INTO users (uuid, role_id, username, email, phone, password_hash, first_name, last_name, must_change_password)
+                 VALUES (UUID(), :rid, :u, :email, :phone, :h, :fn, :ln, 1)'
+            )->execute([
+                'rid' => $parentRoleId, 'u' => $username,
+                'email' => $email ?: null, 'phone' => $phone ?: null,
+                'h' => $hash, 'fn' => $firstName, 'ln' => $lastName,
+            ]);
+            $newUserId = (int) $pdo->lastInsertId();
+
+            // Link user to guardian
+            $pdo->prepare('UPDATE guardians SET user_id = :uid WHERE guardian_id = :gid')
+                ->execute(['uid' => $newUserId, 'gid' => $guardianId]);
+
+            // Link to students
+            foreach ($linkedStudentIds as $sid) {
+                // Verify student exists
+                $chk = $pdo->prepare("SELECT student_id FROM students WHERE student_id = :id AND status='active'");
+                $chk->execute(['id' => $sid]);
+                if ($chk->fetch()) {
+                    $pdo->prepare('INSERT IGNORE INTO student_guardians (student_id, guardian_id, is_primary_contact) VALUES (:sid, :gid, 0)')
+                        ->execute(['sid' => $sid, 'gid' => $guardianId]);
+                }
+            }
+
+            $pdo->commit();
+            audit_log('create_parent_user', 'user_management', 'guardians', $guardianId, "Created parent account for {$firstName} {$lastName}");
+            flash_set('success', "Parent account created for {$firstName} {$lastName}.<br><strong>Username:</strong> {$username}<br><strong>Password:</strong> {$tempPassword}");
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            error_log('[ASMS] create_parent_direct failed: ' . $e->getMessage());
+            flash_set('error', 'Failed to create parent account. ' . $e->getMessage());
+        }
+    }
+    redirect(app_url('/director/users.php'));
+}
+
+// ---- Handle Creating Student User Account (for existing students) ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_student_user') {
+    csrf_verify();
+    $studentId = (int) ($_POST['student_id'] ?? 0);
+
+    if ($studentId <= 0) {
+        flash_set('error', 'Please select a student.');
+    } else {
+        try {
+            $pdo->beginTransaction();
+
+            $stmt = $pdo->prepare(
+                "SELECT s.student_id, s.admission_no, s.class_id, u2.first_name, u2.last_name, u2.gender, u2.user_id
+                 FROM students s
+                 JOIN users u2 ON u2.user_id = s.user_id
+                 WHERE s.student_id = :sid"
+            );
+            $stmt->execute(['sid' => $studentId]);
+            $student = $stmt->fetch();
+
+            if (!$student) {
+                throw new Exception('Student not found.');
+            }
+
+            if (!empty($student['user_id'])) {
+                throw new Exception('This student already has a user account.');
+            }
+
+            $studentRoleId = $pdo->query("SELECT role_id FROM roles WHERE role_name='student'")->fetch()['role_id'];
+            $username = strtolower($student['first_name'][0] . $student['last_name'] . random_int(10, 99));
+            $tempPassword = 'password';
+            $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
+
+            $pdo->prepare(
+                'INSERT INTO users (uuid, role_id, username, password_hash, first_name, last_name, gender, must_change_password)
+                 VALUES (UUID(), :rid, :u, :h, :fn, :ln, :g, 1)'
+            )->execute([
+                'rid' => $studentRoleId, 'u' => $username, 'h' => $hash,
+                'fn' => $student['first_name'], 'ln' => $student['last_name'], 'g' => $student['gender'] ?? null,
+            ]);
+            $newUserId = (int) $pdo->lastInsertId();
+
+            // Link to student record
+            $pdo->prepare('UPDATE students SET user_id = :uid WHERE student_id = :sid')
+                ->execute(['uid' => $newUserId, 'sid' => $studentId]);
+
+            $pdo->commit();
+            audit_log('create_student_user', 'user_management', 'students', $studentId, "Created user account for student {$student['admission_no']}");
+            flash_set('success', "Student user account created for {$student['first_name']} {$student['last_name']}.<br><strong>Username:</strong> {$username}<br><strong>Password:</strong> {$tempPassword}");
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            error_log('[ASMS] create_student_user failed: ' . $e->getMessage());
+            flash_set('error', $e->getMessage() ?: 'Failed to create student user.');
+        }
+    }
+    redirect(app_url('/director/users.php'));
 }
 
 // ---- Handle linking existing user to staff record --------------------
@@ -136,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             if (empty($staff['user_id'])) {
                 // Create user account
                 $username = strtolower($staff['first_name'][0] . $staff['last_name'] . random_int(10, 99));
-                $tempPassword = 'Staff@' . random_int(1000, 9999);
+                $tempPassword = 'password';
                 $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
                 $pdo->prepare(
@@ -220,7 +346,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'force_reset') {
     csrf_verify();
     $targetId = (int) ($_POST['user_id'] ?? 0);
-    $tempPassword = 'Reset@' . random_int(1000, 9999);
+    $tempPassword = 'password';
     $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
     $pdo->prepare('UPDATE users SET password_hash = :h, must_change_password = 1, failed_login_attempts = 0, locked_until = NULL WHERE user_id = :id')
@@ -279,18 +405,25 @@ require APP_ROOT . '/includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <h1 class="h3 mb-0">User & Role Management</h1>
-  <div class="d-flex gap-2">
-    <button class="btn btn-gold" data-bs-toggle="modal" data-bs-target="#createUserModal"><i class="fa fa-user-plus me-1"></i> New Admin User</button>
-    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#linkUserModal"><i class="fa fa-link me-1"></i> Link Staff to User</button>
+  <div class="d-flex gap-2 flex-wrap">
+    <div class="dropdown">
+      <button class="btn btn-gold dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-user-plus me-1"></i> Create New</button>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#createUserModal"><i class="fa fa-user-shield me-2"></i> Admin User</a></li>
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#createParentModal"><i class="fa fa-users me-2"></i> Parent Account</a></li>
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#createStudentUserModal"><i class="fa fa-user-graduate me-2"></i> Student User</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#linkUserModal"><i class="fa fa-link me-2"></i> Link Staff to User</a></li>
+      </ul>
+    </div>
+    <a href="<?= e(app_url('/academic/parent_accounts.php')) ?>" class="btn btn-outline-info"><i class="fa fa-address-book me-1"></i> Manage Parents</a>
   </div>
 </div>
 
 <div class="alert alert-info small">
   <i class="fa fa-info-circle me-1"></i>
-  <strong>Important:</strong> Only <strong>Director</strong>, <strong>System Admin</strong>, and <strong>Head of School</strong> accounts can be created here.
-  Staff accounts (teachers, bursars, etc.) must be onboarded through <a href="<?= e(app_url('/director/staff.php')) ?>" class="alert-link">HR & Staff Management</a>.
-  Student accounts are created through <a href="<?= e(app_url('/academic/students.php')) ?>" class="alert-link">Student Registration</a>.
-  Parent accounts can be created via <a href="<?= e(app_url('/academic/parent_accounts.php')) ?>" class="alert-link">Parent Account Management</a>.
+  <strong>Quick User Creation:</strong> Use the dropdown to create accounts for different user types.
+  Staff (teachers/bursars) must be onboarded through <a href="<?= e(app_url('/director/staff.php')) ?>" class="alert-link">HR & Staff Management</a>.
 </div>
 
 <div class="card mb-4">
@@ -532,6 +665,125 @@ require APP_ROOT . '/includes/header.php';
           </div>
         </form>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Parent Account Modal (Direct) -->
+<div class="modal fade" id="createParentModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="POST">
+        <?php csrf_field(); ?>
+        <input type="hidden" name="action" value="create_parent_direct">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-users text-gold me-2"></i>Create Parent Account</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">This will create a <strong>guardian record</strong>, a <strong>user account</strong> (parent role), and link them to selected students — all in one step.</p>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label">First Name <span class="required-mark">*</span></label>
+              <input type="text" name="first_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Last Name <span class="required-mark">*</span></label>
+              <input type="text" name="last_name" class="form-control" required>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label">Email</label>
+              <input type="email" name="email" class="form-control">
+            </div>
+            <div class="col-4">
+              <label class="form-label">Phone</label>
+              <input type="text" name="phone" class="form-control">
+            </div>
+            <div class="col-2">
+              <label class="form-label">Relation</label>
+              <select name="relationship" class="form-select">
+                <option value="father">Father</option>
+                <option value="mother">Mother</option>
+                <option value="guardian" selected>Guardian</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Link to Students (optional, select multiple)</label>
+            <select name="student_ids[]" class="form-select" multiple size="6">
+              <?php
+              $allStudents = $pdo->query(
+                  "SELECT s.student_id, s.admission_no, u2.first_name, u2.last_name, cl.level_name, c.stream_name
+                   FROM students s
+                   JOIN users u2 ON u2.user_id = s.user_id
+                   LEFT JOIN classes c ON c.class_id = s.class_id
+                   LEFT JOIN class_levels cl ON cl.class_level_id = c.class_level_id
+                   WHERE s.status = 'active'
+                   ORDER BY u2.first_name"
+              )->fetchAll();
+              foreach ($allStudents as $stu): ?>
+                <option value="<?= (int) $stu['student_id'] ?>">
+                  <?= e($stu['first_name'] . ' ' . $stu['last_name'] . ' (' . $stu['admission_no'] . ' - ' . ($stu['level_name'] ?? '') . ' ' . ($stu['stream_name'] ?? '') . ')') ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <small class="text-muted">Hold CTRL (or CMD on Mac) to select multiple students.</small>
+          </div>
+          <p class="text-muted small mb-0">A username and temporary password will be generated automatically.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="fa fa-user-plus me-1"></i> Create Parent Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Create Student User Account Modal -->
+<div class="modal fade" id="createStudentUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST">
+        <?php csrf_field(); ?>
+        <input type="hidden" name="action" value="create_student_user">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-user-graduate text-gold me-2"></i>Create Student User</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">Create a user account for an existing student who doesn't have a login yet. The student must already be registered in the system.</p>
+          <div class="mb-2">
+            <label class="form-label">Select Student <span class="required-mark">*</span></label>
+            <select name="student_id" class="form-select" required>
+              <option value="">-- Select Student --</option>
+              <?php
+              $studentsNoUser = $pdo->query(
+                  "SELECT s.student_id, s.admission_no, u2.first_name, u2.last_name, cl.level_name, c.stream_name
+                   FROM students s
+                   JOIN users u2 ON u2.user_id = s.user_id
+                   LEFT JOIN classes c ON c.class_id = s.class_id
+                   LEFT JOIN class_levels cl ON cl.class_level_id = c.class_level_id
+                   WHERE s.status = 'active'
+                   ORDER BY u2.first_name"
+              )->fetchAll();
+              foreach ($studentsNoUser as $stu): ?>
+                <option value="<?= (int) $stu['student_id'] ?>">
+                  <?= e($stu['first_name'] . ' ' . $stu['last_name'] . ' (' . $stu['admission_no'] . ' - ' . ($stu['level_name'] ?? '') . ' ' . ($stu['stream_name'] ?? '') . ')') ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <p class="text-muted small mb-0">A username and temporary password will be generated automatically. The student will need to change password on first login.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="fa fa-user-plus me-1"></i> Create Student User</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>

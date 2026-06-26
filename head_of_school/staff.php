@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
 
             $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
             $username = strtolower($firstName[0] . $lastName . random_int(10, 99));
-            $tempPassword = 'Staff@' . random_int(1000, 9999);
+            $tempPassword = 'password';
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(

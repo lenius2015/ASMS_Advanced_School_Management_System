@@ -93,6 +93,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'promo
     redirect(app_url('/academic/promotions.php'));
 }
 
+// ----- DELETE/UNDO PROMOTION -----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_promotion') {
+    csrf_verify();
+    $promotionId = (int) ($_POST['promotion_id'] ?? 0);
+    if ($promotionId > 0) {
+        try {
+            $pdo->prepare('DELETE FROM student_promotions WHERE promotion_id = :id')
+                ->execute(['id' => $promotionId]);
+            audit_log('delete_promotion', 'academics', 'student_promotions', $promotionId, 'Deleted promotion record');
+            flash_set('success', 'Promotion record deleted.');
+        } catch (Throwable $e) {
+            flash_set('error', 'Failed to delete promotion record.');
+            error_log('[ASMS] delete_promotion: ' . $e->getMessage());
+        }
+    }
+    redirect(app_url('/academic/promotions.php'));
+}
+
 // ----- INDIVIDUAL STUDENT PROMOTION -----
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'promote_individual') {
     csrf_verify();

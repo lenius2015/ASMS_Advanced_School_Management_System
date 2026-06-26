@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
 
             // Create user account
             $username = strtolower($guardian['first_name'][0] . $guardian['last_name'] . random_int(10, 99));
-            $tempPassword = 'Parent@' . random_int(1000, 9999);
+            $tempPassword = 'password';
             $hash = password_hash($tempPassword, PASSWORD_BCRYPT);
 
             $pdo->prepare(
