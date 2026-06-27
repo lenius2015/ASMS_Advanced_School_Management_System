@@ -4,38 +4,50 @@
  * Generates a password reset token. In production, this would be emailed
  * to the user; for this demo build it is shown on-screen with a note,
  * since no SMTP/mail service is configured out of the box.
+ *
+ * Requires the password_resets table (migration_011_password_resets.sql).
  */
 require_once __DIR__ . '/../config/config.php';
 
 $pdo = get_db_connection();
 $message = '';
 $resetLink = null;
+$error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
     $identifier = trim($_POST['identifier'] ?? '');
 
-    $stmt = $pdo->prepare('SELECT user_id, email FROM users WHERE username = :u OR email = :u LIMIT 1');
-    $stmt->execute(['u' => $identifier]);
-    $user = $stmt->fetch();
+    if ($identifier === '') {
+        $error = 'Please enter your username or email address.';
+    } else {
+        try {
+            $stmt = $pdo->prepare('SELECT user_id, email FROM users WHERE username = :u OR email = :u LIMIT 1');
+            $stmt->execute(['u' => $identifier]);
+            $user = $stmt->fetch();
 
-    // Always show the same generic message, whether or not the account
-    // exists, to avoid leaking which usernames/emails are registered.
-    $message = 'If an account matching that information exists, password reset instructions have been generated.';
+            // Always show the same generic message, whether or not the account
+            // exists, to avoid leaking which usernames/emails are registered.
+            $message = 'If an account matching that information exists, password reset instructions have been generated.';
 
-    if ($user) {
-        $token = bin2hex(random_bytes(32));
-        $tokenHash = hash('sha256', $token);
-        $expires = (new DateTime())->modify('+1 hour')->format('Y-m-d H:i:s');
+            if ($user) {
+                $token = bin2hex(random_bytes(32));
+                $tokenHash = hash('sha256', $token);
+                $expires = (new DateTime())->modify('+1 hour')->format('Y-m-d H:i:s');
 
-        $pdo->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (:uid, :hash, :exp)')
-            ->execute(['uid' => $user['user_id'], 'hash' => $tokenHash, 'exp' => $expires]);
+                $pdo->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (:uid, :hash, :exp)')
+                    ->execute(['uid' => $user['user_id'], 'hash' => $tokenHash, 'exp' => $expires]);
 
-        audit_log('password_reset_requested', 'auth', 'users', (int) $user['user_id'], 'Password reset token generated');
+                audit_log('password_reset_requested', 'auth', 'users', (int) $user['user_id'], 'Password reset token generated');
 
-        // NOTE: wire this to a real mail/SMS service in production instead
-        // of displaying it. Shown here only because this demo has no mail server.
-        $resetLink = app_url('/auth/reset_password.php') . '?token=' . $token . '&uid=' . $user['user_id'];
+                // NOTE: wire this to a real mail/SMS service in production instead
+                // of displaying it. Shown here only because this demo has no mail server.
+                $resetLink = app_url('/auth/reset_password.php') . '?token=' . $token . '&uid=' . $user['user_id'];
+            }
+        } catch (Throwable $e) {
+            error_log("Password reset error: " . $e->getMessage());
+            $error = 'A system error occurred. Please try again later or contact the administrator.';
+        }
     }
 }
 
@@ -59,6 +71,9 @@ $pageTitle = 'Forgot Password';
       <p class="text-muted small">Enter your username or email to receive reset instructions.</p>
     </div>
 
+    <?php if ($error): ?>
+      <div class="alert alert-danger small"><?= e($error) ?></div>
+    <?php endif; ?>
     <?php if ($message): ?>
       <div class="alert alert-info small"><?= e($message) ?></div>
       <?php if ($resetLink): ?>

@@ -31,6 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
         $error = 'First name, last name, role, and job title are required.';
     } else {
         try {
+            // Check if email is already taken
+            if ($email !== '') {
+                $emailCheck = $pdo->prepare('SELECT COUNT(*) FROM users WHERE email = :email');
+                $emailCheck->execute(['email' => $email]);
+                if ((int) $emailCheck->fetchColumn() > 0) {
+                    throw new Exception('The email address "' . e($email) . '" is already in use by another user. Please use a different email.');
+                }
+            }
+
             $pdo->beginTransaction();
 
             $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
@@ -135,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         $pdo->beginTransaction();
 
         // Get staff record for file cleanup and user_id
-        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
+        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username, u.first_name, u.last_name FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
         $stmt->execute(['id' => $staffId]);
         $record = $stmt->fetch();
 

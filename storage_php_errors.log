@@ -13,3 +13,7 @@ Stack trace:
 #0 C:\xampp\htdocs\asms\academic\students.php(209): render_avatar(NULL, NULL, NULL, 28, 'me-1')
 #1 {main}
   thrown in C:\xampp\htdocs\asms\includes\functions.php on line 297
+[27-Jun-2026 09:32:20 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "first_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
+[27-Jun-2026 09:32:20 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "last_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
+[27-Jun-2026 09:33:23 Africa/Dar_es_Salaam] [ASMS] create_staff failed: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'kamugisha@gmail.com' for key 'email'
+[27-Jun-2026 09:33:40 Africa/Dar_es_Salaam] [ASMS] create_staff failed: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'kamugisha@gmail.com' for key 'email'

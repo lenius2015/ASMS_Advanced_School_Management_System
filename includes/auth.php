@@ -24,7 +24,22 @@ function app_url(string $path = ''): string
  */
 function is_logged_in(): bool
 {
-    return !empty($_SESSION['user_id']);
+    if (empty($_SESSION['user_id'])) {
+        return false;
+    }
+    // Enforce session idle timeout
+    if (defined('SESSION_TIMEOUT_SECONDS') && SESSION_TIMEOUT_SECONDS > 0) {
+        $lastActivity = $_SESSION['last_activity'] ?? 0;
+        if ($lastActivity > 0 && (time() - $lastActivity) > SESSION_TIMEOUT_SECONDS) {
+            // Session expired - log out gracefully
+            $_SESSION = [];
+            session_destroy();
+            return false;
+        }
+    }
+    // Update last activity timestamp
+    $_SESSION['last_activity'] = time();
+    return true;
 }
 
 /**
@@ -146,7 +161,7 @@ function attempt_login(PDO $pdo, string $username, string $password): array
     // Look up user by username OR email
     $stmt = $pdo->prepare(
         'SELECT u.user_id, u.password_hash, u.must_change_password,
-                r.role_name, u.is_active
+                r.role_name, u.is_active, u.failed_login_attempts, u.locked_until
          FROM users u
          JOIN roles r ON r.role_id = u.role_id
          WHERE (u.username = :login OR u.email = :login2)
@@ -175,7 +190,33 @@ function attempt_login(PDO $pdo, string $username, string $password): array
         ];
     }
 
+    // Check if account is locked due to too many failed attempts
+    if ($user['locked_until'] !== null) {
+        $lockedUntil = strtotime($user['locked_until']);
+        if ($lockedUntil > time()) {
+            $minutesLeft = ceil(($lockedUntil - time()) / 60);
+            return [
+                'ok'                  => false,
+                'message'             => 'Account temporarily locked due to too many failed login attempts. Try again in ' . $minutesLeft . ' minute(s).',
+                'user_id'             => null,
+                'role_name'           => null,
+                'must_change_password'=> false,
+            ];
+        }
+    }
+
     if (!password_verify($password, $user['password_hash'])) {
+        // Increment failed login attempts and lock if exceeded
+        $newAttempts = (int) ($user['failed_login_attempts'] ?? 0) + 1;
+        $maxAttempts = defined('MAX_LOGIN_ATTEMPTS') ? MAX_LOGIN_ATTEMPTS : 5;
+        $lockMinutes = defined('LOCKOUT_MINUTES') ? LOCKOUT_MINUTES : 15;
+        if ($newAttempts >= $maxAttempts) {
+            $pdo->prepare('UPDATE users SET failed_login_attempts = :att, locked_until = DATE_ADD(NOW(), INTERVAL :min MINUTE) WHERE user_id = :uid')
+                ->execute(['att' => $newAttempts, 'min' => $lockMinutes, 'uid' => $user['user_id']]);
+        } else {
+            $pdo->prepare('UPDATE users SET failed_login_attempts = :att WHERE user_id = :uid')
+                ->execute(['att' => $newAttempts, 'uid' => $user['user_id']]);
+        }
         // Log failed attempt
         $failStmt = $pdo->prepare(
             'INSERT INTO audit_logs (user_id, action, module, description, ip_address)
@@ -185,7 +226,7 @@ function attempt_login(PDO $pdo, string $username, string $password): array
             'uid'    => $user['user_id'],
             'action' => 'login_failed',
             'module' => 'auth',
-            'desc'   => 'Failed login attempt for user ' . $username,
+            'desc'   => 'Failed login attempt ' . $newAttempts . ' of ' . $maxAttempts . ' for user ' . $username,
             'ip'     => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
         ]);
 
@@ -215,8 +256,8 @@ function attempt_login(PDO $pdo, string $username, string $password): array
     $_SESSION['full_name'] = $profile['full_name'] ?? $username;
     $_SESSION['photo_path'] = $profile['photo_path'] ?? null;
 
-    // Update last login timestamp
-    $pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE user_id = :uid')
+    // Update last login timestamp and reset failed attempts
+    $pdo->prepare('UPDATE users SET last_login_at = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE user_id = :uid')
         ->execute(['uid' => $user['user_id']]);
 
     return [

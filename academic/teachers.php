@@ -338,7 +338,11 @@ require APP_ROOT . '/includes/header.php';
 </div>
 
 <!-- Teacher Detail View -->
-<?php if ($viewTeacherId > 0 && $teacherInfo): ?>
+<?php if ($viewTeacherId > 0 && $teacherInfo):
+    // Determine status badge color for the detail view
+    $statusMap = ['active'=>'success', 'on_leave'=>'warning', 'suspended'=>'danger', 'terminated'=>'secondary', 'retired'=>'secondary'];
+    $sBadge = $statusMap[$teacherInfo['status']] ?? 'secondary';
+?>
 <div id="teacherSubjectsSection" class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fa fa-list text-gold me-2"></i>Subject Assignments: <?= e($teacherInfo['first_name'] . ' ' . $teacherInfo['last_name']) ?></span>

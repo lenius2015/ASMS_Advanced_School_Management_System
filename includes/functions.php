@@ -294,9 +294,9 @@ function get_default_child(PDO $pdo, int $userId): ?int
  * Render a user's avatar: show photo if available, otherwise show initials.
  * Returns HTML string for use in templates.
  */
-function render_avatar(?string $photoPath, string $firstName, string $lastName, int $size = 40, string $classes = ''): string
+function render_avatar(?string $photoPath, ?string $firstName, ?string $lastName, int $size = 40, string $classes = ''): string
 {
-    $initials = e(mb_substr($firstName, 0, 1) . mb_substr($lastName, 0, 1));
+    $initials = e(mb_substr($firstName ?? '', 0, 1) . mb_substr($lastName ?? '', 0, 1));
     $style = "width:{$size}px;height:{$size}px;font-size:" . round($size * 0.45) . "px;";
 
     if ($photoPath) {
