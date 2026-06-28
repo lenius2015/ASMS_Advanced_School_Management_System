@@ -71,9 +71,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             flash_set('success', "Staff registered with number {$staffNo}. Login username: {$username}, temporary password: {$tempPassword}.");
             redirect(app_url('/director/staff.php'));
         } catch (Throwable $e) {
-            $pdo->rollBack();
+            // Only rollback if a transaction is actually active
+            try {
+                $pdo->rollBack();
+            } catch (Throwable $rb) {
+                // Ignore rollback failures (no active transaction)
+            }
+            $errMsg = $e->getMessage();
+            if (str_contains($errMsg, 'duplicate_email') || str_contains($errMsg, 'already in use')) {
+                $error = 'The email address "' . e($email) . '" is already in use by another user. Please use a different email.';
+            } elseif (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'email')) {
+                $error = 'The email address "' . e($email) . '" is already in use by another user. Please use a different email.';
+            } elseif (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'staff_no')) {
+                $error = 'A system error occurred while generating the staff number. Please try again.';
+            } else {
+                $error = 'Failed to register staff member. Please try again and ensure all fields are correct.';
+            }
             error_log('[ASMS] create_staff failed: ' . $e->getMessage());
-            $error = 'Failed to register staff member. Please try again.';
         }
     }
 }
@@ -799,4 +813,14 @@ function confirmDeleteStaff(staffId, staffName) {
 }
 </script>
 
+<?php if ($error): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = new bootstrap.Modal(document.getElementById('newStaffModal'));
+  modal.show();
+});
+</script>
+<?php endif; ?>
+
+<?php require APP_ROOT . '/includes/footer.php'; ?>
 <?php require APP_ROOT . '/includes/footer.php'; ?>

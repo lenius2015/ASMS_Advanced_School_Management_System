@@ -61,54 +61,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
                     ->execute(['sid' => $newStudentId, 'gid' => $guardianId]);
             }
 
-            // Handle document uploads (birth certificate & medical checkup)
+            $pdo->commit();
+
+            // Handle document uploads AFTER commit so upload failure doesn't roll back student registration
+            $uploadedDocs = 0;
             $targetDir = APP_ROOT . '/uploads/documents/student/';
             if (!is_dir($targetDir)) {
                 mkdir($targetDir, 0755, true);
             }
-
             $docTypes = ['birth_certificate', 'medical_checkup'];
-            $uploadedDocs = 0;
-
             foreach ($docTypes as $docType) {
                 $fileKey = 'doc_' . $docType;
                 if (isset($_FILES[$fileKey]) && $_FILES[$fileKey]['error'] !== UPLOAD_ERR_NO_FILE) {
                     $file = $_FILES[$fileKey];
                     $allowedExt = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'gif'];
                     $docError = validate_upload($file, $allowedExt, 10_485_760);
-
                     if (!$docError) {
-                        $filePath = store_upload($file, $targetDir, 'doc_' . $newStudentId);
-                        $mimeType = mime_content_type($filePath) ?: $file['type'];
-                        $docName = ucfirst(str_replace('_', ' ', $docType));
-
-                        $pdo->prepare(
-                            'INSERT INTO student_documents (student_id, document_type, document_name, file_path, file_size, mime_type, uploaded_by)
-                             VALUES (:sid, :type, :name, :path, :size, :mime, :uid)'
-                        )->execute([
-                            'sid' => $newStudentId, 'type' => $docType, 'name' => $docName,
-                            'path' => $filePath, 'size' => $file['size'], 'mime' => $mimeType,
-                            'uid' => current_user_id(),
-                        ]);
-                        $uploadedDocs++;
+                        try {
+                            $filePath = store_upload($file, $targetDir, 'doc_' . $newStudentId);
+                            $mimeType = mime_content_type($filePath) ?: $file['type'];
+                            $docName = ucfirst(str_replace('_', ' ', $docType));
+                            $pdo->prepare(
+                                'INSERT INTO student_documents (student_id, document_type, document_name, file_path, file_size, mime_type, uploaded_by)
+                                 VALUES (:sid, :type, :name, :path, :size, :mime, :uid)'
+                            )->execute([
+                                'sid' => $newStudentId, 'type' => $docType, 'name' => $docName,
+                                'path' => $filePath, 'size' => $file['size'], 'mime' => $mimeType,
+                                'uid' => current_user_id(),
+                            ]);
+                            $uploadedDocs++;
+                        } catch (Throwable $docE) {
+                            // Log document upload error but don't fail the registration
+                            error_log('[ASMS] Student document upload failed: ' . $docE->getMessage());
+                        }
                     }
                 }
             }
-
             // Auto-update registration completeness if both docs uploaded
             if ($uploadedDocs >= 2) {
-                $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = :sid')
-                    ->execute(['sid' => $newStudentId]);
+                try {
+                    $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = :sid')
+                        ->execute(['sid' => $newStudentId]);
+                } catch (Throwable $updE) {
+                    error_log('[ASMS] Student registration_complete update failed: ' . $updE->getMessage());
+                }
             }
 
-            $pdo->commit();
             audit_log('create_student', 'student_management', 'students', $newStudentId, "Registered student {$admissionNo}");
             flash_set('success', "Student registered with admission number {$admissionNo}. Login username: {$username}, temporary password: {$tempPassword}.");
             redirect(app_url('/academic/students.php'));
         } catch (Throwable $e) {
-            $pdo->rollBack();
-            error_log('[ASMS] create_student failed: ' . $e->getMessage());
-            $error = 'Failed to register student. Please try again.';
+            // Only rollback if a transaction is actually active
+            try {
+                $pdo->rollBack();
+            } catch (Throwable $rb) {
+                // Ignore rollback failures (no active transaction)
+            }
+            $errMsg = $e->getMessage();
+            if (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'admission_no')) {
+                $error = 'A system error occurred while generating the admission number. Please try again.';
+            } elseif (str_contains($errMsg, '1062 Duplicate')) {
+                $error = 'A duplicate record was detected. The username or admission number may already exist.';
+            } else {
+                $error = 'Failed to register student. Please try again and ensure all fields are correct.';
+            }
+            error_log('[ASMS] create_student failed: ' . $errMsg);
         }
     }
 }
@@ -206,7 +223,7 @@ require APP_ROOT . '/includes/header.php';
           ?>
           <tr>
             <td><code><?= e($s['admission_no']) ?></code></td>
-            <td><?= render_avatar($s['photo_path'] ?? null, $s['first_name'], $s['last_name'], 28, 'me-1') ?> <?= e($s['first_name'] . ' ' . $s['last_name']) ?></td>
+            <td><?= render_avatar($s['photo_path'] ?? null, $s['first_name'] ?? '', $s['last_name'] ?? '', 28, 'me-1') ?> <?= e(($s['first_name'] ?? '') . ' ' . ($s['last_name'] ?? '')) ?></td>
             <td><?= e($s['level_name'] ? $s['level_name'] . ' ' . $s['stream_name'] : 'Unassigned') ?></td>
             <td><?= e(ucfirst($s['gender'] ?? '-')) ?></td>
             <td><span class="badge badge-status-<?= e($s['status']) ?>"><?= e(ucfirst($s['status'])) ?></span></td>
@@ -301,4 +318,14 @@ require APP_ROOT . '/includes/header.php';
   </div>
 </div>
 
+<?php if ($error): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = new bootstrap.Modal(document.getElementById('newStudentModal'));
+  modal.show();
+});
+</script>
+<?php endif; ?>
+
+<?php require APP_ROOT . '/includes/footer.php'; ?>
 <?php require APP_ROOT . '/includes/footer.php'; ?>

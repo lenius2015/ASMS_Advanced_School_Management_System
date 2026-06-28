@@ -5,13 +5,21 @@
  * Director and System Admin can approve or reject requests.
  */
 require_once __DIR__ . '/../config/config.php';
-require_role(['director', 'system_admin']);
+require_role(['director', 'system_admin', 'head_of_school']);
 
 $pdo = get_db_connection();
 
 // Handle approve/reject action
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
+
+    // Only Director and System Admin can approve/reject requests
+    $currentRole = current_role();
+    if (!in_array($currentRole, ['director', 'system_admin'], true)) {
+        flash_set('error', 'You do not have permission to approve or reject deletion requests.');
+        redirect(app_url('/director/deletion_requests.php'));
+    }
+
     $requestId = (int) ($_POST['request_id'] ?? 0);
     $action = $_POST['action'] ?? ''; // 'approve' or 'reject'
     $reviewerRemarks = trim($_POST['reviewer_remarks'] ?? '');
@@ -214,6 +222,9 @@ require APP_ROOT . '/includes/header.php';
                       <strong>Warning:</strong> Approving will permanently delete this student and ALL related records (attendance, marks, fees, discipline). This action cannot be undone.
                     </div>
 
+
+
+                    <?php if (in_array(current_role(), ['director', 'system_admin'], true)): ?>
                     <div class="d-flex gap-2">
                       <form method="POST" class="flex-grow-1" onsubmit="return confirm('Are you sure you want to permanently delete this student?')">
                         <?php csrf_field(); ?>
@@ -241,6 +252,12 @@ require APP_ROOT . '/includes/header.php';
                         </button>
                       </form>
                     </div>
+                    <?php else: ?>
+                    <div class="alert alert-info small mb-0">
+                      <i class="fa fa-info-circle me-1"></i>
+                      This request is pending review by the Director or System Admin. You do not have permission to approve or reject requests.
+                    </div>
+                    <?php endif; ?>
                   </div>
                 </div>
               </div>

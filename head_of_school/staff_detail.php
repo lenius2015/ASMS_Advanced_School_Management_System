@@ -70,6 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 // ---- Deactivate User Account -------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_user_active') {
     csrf_verify();
+
+    // Prevent non-director users from deactivating a director
+    $currentRole = current_role();
+    if ($staff['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true)) {
+        flash_set('error', 'You do not have permission to deactivate the School Director account.');
+        redirect(app_url('/head_of_school/staff_detail.php?id=' . $staffId));
+    }
+
     $userId = (int) $staff['user_id'];
     $newActive = $staff['is_active'] ? 0 : 1;
     $pdo->prepare('UPDATE users SET is_active = :a WHERE user_id = :id')
@@ -92,12 +100,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
+        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username, r.role_name FROM staff st JOIN users u ON u.user_id = st.user_id JOIN roles r ON r.role_id = u.role_id WHERE st.staff_id = :id");
         $stmt->execute(['id' => $staffId]);
         $record = $stmt->fetch();
 
         if (!$record) {
             throw new Exception('Staff record not found.');
+        }
+
+
+        // Prevent non-director users from deleting a director
+        $currentRole = current_role();
+        if ($record['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true)) {
+            $pdo->rollBack();
+            flash_set('error', 'You do not have permission to delete the School Director.');
+            redirect(app_url('/head_of_school/staff_detail.php?id=' . $staffId));
         }
 
         // Check for dependencies
@@ -158,9 +175,12 @@ require APP_ROOT . '/includes/header.php';
   <h1 class="h3 mb-0"><i class="fa fa-id-badge text-gold me-2"></i>Staff Profile</h1>
   <div class="d-flex gap-2">
     <a href="<?= e(app_url('/head_of_school/staff.php')) ?>" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Back to Staff</a>
+    <?php $currentRole = current_role(); ?>
+    <?php if (!($staff['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true))): ?>
     <button type="button" class="btn btn-outline-danger" onclick="confirmDeleteStaff(<?= (int) $staffId ?>, '<?= e($staff['first_name'] . ' ' . $staff['last_name']) ?>')">
       <i class="fa fa-trash me-1"></i> Delete Staff
     </button>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -190,6 +210,7 @@ require APP_ROOT . '/includes/header.php';
           <div class="mb-1"><strong>Email:</strong> <?= e($staff['email'] ?: '-') ?></div>
           <div class="mb-1"><strong>Phone:</strong> <?= e($staff['phone'] ?: '-') ?></div>
         </div>
+        <?php if (!($staff['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true))): ?>
         <form method="POST" class="mt-2" onsubmit="return confirm('Toggle user account active status?')">
           <?php csrf_field(); ?>
           <input type="hidden" name="action" value="toggle_user_active">
@@ -198,6 +219,8 @@ require APP_ROOT . '/includes/header.php';
             <?= $staff['is_active'] ? 'Deactivate User Account' : 'Activate User Account' ?>
           </button>
         </form>
+        <?php endif; ?>
+      </div>
       </div>
     </div>
   </div>
@@ -284,7 +307,7 @@ require APP_ROOT . '/includes/header.php';
           <h5 class="modal-title"><i class="fa fa-exclamation-triangle me-1"></i> Delete Staff</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
-        <div class="modal-body">
+<img src="...">  </div>
           <p class="mb-2"><strong>Are you sure you want to permanently delete this staff member?</strong></p>
           <p class="text-danger small mb-0"><i class="fa fa-info-circle"></i> This action will also delete all associated documents, certificates, qualifications, leave records, and the user account. This cannot be undone.</p>
           <p class="mt-2 mb-0">Staff: <strong id="deleteStaffName"></strong></p>

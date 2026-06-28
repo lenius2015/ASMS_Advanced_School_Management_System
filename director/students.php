@@ -66,9 +66,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             flash_set('success', "Student registered with admission number {$admissionNo}. Login username: {$username}, temporary password: {$tempPassword}.");
             redirect(app_url('/director/students.php'));
         } catch (Throwable $e) {
-            $pdo->rollBack();
-            error_log('[ASMS] create_student failed: ' . $e->getMessage());
-            $error = 'Failed to register student. Please try again.';
+            // Only rollback if a transaction is actually active
+            try {
+                $pdo->rollBack();
+            } catch (Throwable $rb) {
+                // Ignore rollback failures (no active transaction)
+            }
+            $errMsg = $e->getMessage();
+            if (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'admission_no')) {
+                $error = 'A system error occurred while generating the admission number. Please try again.';
+            } elseif (str_contains($errMsg, '1062 Duplicate')) {
+                $error = 'A duplicate record was detected. The username or admission number may already exist.';
+            } else {
+                $error = 'Failed to register student. Please try again and ensure all fields are correct.';
+            }
+            error_log('[ASMS] create_student failed: ' . $errMsg);
         }
     }
 }

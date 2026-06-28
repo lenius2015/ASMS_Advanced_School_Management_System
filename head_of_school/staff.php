@@ -28,8 +28,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     if ($firstName === '' || $lastName === '' || $roleId <= 0 || $jobTitle === '') {
         $error = 'First name, last name, role, and job title are required.';
     } else {
-        try {
-            $pdo->beginTransaction();
+        // Prevent non-director users from assigning high-level roles
+        $currentRole = current_role();
+        $highLevelRoles = ['director', 'system_admin', 'school_board'];
+        if (!in_array($currentRole, ['director', 'system_admin'], true)) {
+            $stmt = $pdo->prepare("SELECT role_name FROM roles WHERE role_id = :rid");
+            $stmt->execute(['rid' => $roleId]);
+            $selectedRole = $stmt->fetchColumn();
+            if ($selectedRole && in_array($selectedRole, $highLevelRoles, true)) {
+                $error = 'You do not have permission to assign the selected system role.';
+            }
+        }
+        if ($error === '') {
+            try {
+                // Check if email is already taken BEFORE starting the transaction
+                if ($email !== '') {
+                    $emailCheck = $pdo->prepare('SELECT COUNT(*) FROM users WHERE email = :email');
+                    $emailCheck->execute(['email' => $email]);
+                    if ((int) $emailCheck->fetchColumn() > 0) {
+                        throw new Exception('duplicate_email');
+                    }
+                }
+
+                $pdo->beginTransaction();
 
             $staffNo = generate_sequential_id($pdo, 'STF', (int) date('Y'));
             $username = generate_username($pdo, $firstName, $lastName, $email);
@@ -60,12 +81,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
             flash_set('success', "Staff registered with number {$staffNo}. Login username: {$username}, temporary password: {$tempPassword}.");
             redirect(app_url('/head_of_school/staff.php'));
         } catch (Throwable $e) {
-            $pdo->rollBack();
+            // Only rollback if a transaction is actually active
+            try {
+                $pdo->rollBack();
+            } catch (Throwable $rb) {
+                // Ignore rollback failures (no active transaction)
+            }
+            $errMsg = $e->getMessage();
+            if ($errMsg === 'duplicate_email') {
+                $error = 'The email address ' . e($email) . ' is already in use by another user. Please use a different email.';
+            } elseif (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'email')) {
+                $error = 'The email address ' . e($email) . ' is already in use by another user. Please use a different email.';
+            } elseif (str_contains($errMsg, '1062 Duplicate') && str_contains($errMsg, 'staff_no')) {
+                $error = 'A system error occurred while generating the staff number. Please try again.';
+            } else {
+                $error = 'Failed to register staff member. Please try again and ensure all fields are correct.';
+            }
             error_log('[ASMS] create_staff failed: ' . $e->getMessage());
-            $error = 'Failed to register staff member. Please try again.';
         }
     }
 }
+}
+
+
 
 // ---- Edit Staff -------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_staff') {
@@ -81,6 +119,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     if ($staffId <= 0 || $jobTitle === '') {
         flash_set('error', 'Staff ID and job title are required.');
     } else {
+        // Prevent non-director users from editing a director
+        $stmt = $pdo->prepare("SELECT r.role_name FROM staff st JOIN users u ON u.user_id = st.user_id JOIN roles r ON r.role_id = u.role_id WHERE st.staff_id = :sid");
+        $stmt->execute(['sid' => $staffId]);
+        $roleName = $stmt->fetchColumn();
+        $currentRole = current_role();
+        if ($roleName === 'director' && !in_array($currentRole, ['director', 'system_admin'], true)) {
+            flash_set('error', 'You do not have permission to edit the School Director.');
+            redirect(app_url('/head_of_school/staff.php'));
+        }
+
         try {
             $pdo->prepare(
                 'UPDATE staff SET department_id = :dept, job_title = :title, employment_type = :etype,
@@ -111,6 +159,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     if ($staffId <= 0 || !in_array($newStatus, $allowedStatuses)) {
         flash_set('error', 'Invalid request parameters.');
     } else {
+        // Prevent non-director users from changing status of a director
+        $stmt = $pdo->prepare("SELECT r.role_name FROM staff st JOIN users u ON u.user_id = st.user_id JOIN roles r ON r.role_id = u.role_id WHERE st.staff_id = :sid");
+        $stmt->execute(['sid' => $staffId]);
+        $roleName = $stmt->fetchColumn();
+        $currentRole = current_role();
+        if ($roleName === 'director' && !in_array($currentRole, ['director', 'system_admin'], true)) {
+            flash_set('error', 'You do not have permission to change the status of the School Director.');
+            redirect(app_url('/head_of_school/staff.php'));
+        }
         $pdo->prepare('UPDATE staff SET status = :s WHERE staff_id = :id')
             ->execute(['s' => $newStatus, 'id' => $staffId]);
         audit_log('update_staff_status', 'staff_management', 'staff', $staffId, "Status changed to {$newStatus}");
@@ -118,6 +175,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     }
     redirect(app_url('/head_of_school/staff.php'));
 }
+
+// ---- Update Staff Status (terminate/activate/suspend) -----------------
 
 // ---- Delete Staff -----------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_staff') {
@@ -132,13 +191,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     try {
         $pdo->beginTransaction();
 
-        // Get staff record for file cleanup and user_id
-        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username FROM staff st JOIN users u ON u.user_id = st.user_id WHERE st.staff_id = :id");
+        // Get staff record for file cleanup and user_id (also fetch role for protection check)
+        $stmt = $pdo->prepare("SELECT st.*, u.user_id, u.username, r.role_name FROM staff st JOIN users u ON u.user_id = st.user_id JOIN roles r ON r.role_id = u.role_id WHERE st.staff_id = :id");
         $stmt->execute(['id' => $staffId]);
         $record = $stmt->fetch();
 
         if (!$record) {
             throw new Exception('Staff record not found.');
+        }
+
+        // Prevent non-director users from deleting a director
+        $currentRole = current_role();
+        if ($record['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true)) {
+            $pdo->rollBack();
+            flash_set('error', 'You do not have permission to delete the School Director.');
+            redirect(app_url('/head_of_school/staff.php'));
         }
 
         // Check for dependencies that would prevent deletion
@@ -262,7 +329,15 @@ $stmt->execute($params);
 $staffList = $stmt->fetchAll();
 
 $departments = $pdo->query('SELECT * FROM departments ORDER BY department_name')->fetchAll();
-$roles = $pdo->query("SELECT * FROM roles WHERE role_name NOT IN ('parent','student') ORDER BY role_name")->fetchAll();
+$currentRole = current_role();
+$excludedRoles = ['parent', 'student'];
+if (!in_array($currentRole, ['director', 'system_admin'], true)) {
+    $excludedRoles = array_merge($excludedRoles, ['director', 'system_admin', 'school_board']);
+}
+$placeholders = implode(',', array_fill(0, count($excludedRoles), '?'));
+$roles = $pdo->prepare("SELECT * FROM roles WHERE role_name NOT IN ($placeholders) ORDER BY role_name");
+$roles->execute($excludedRoles);
+$roles = $roles->fetchAll();
 
 $totalActive = (int) $pdo->query("SELECT COUNT(*) FROM staff WHERE status='active'")->fetchColumn();
 $totalOnLeave = (int) $pdo->query("SELECT COUNT(*) FROM staff WHERE status='on_leave'")->fetchColumn();
@@ -397,11 +472,13 @@ require APP_ROOT . '/includes/header.php';
             <td>
               <div class="btn-group btn-group-sm">
                 <a href="<?= e(app_url('/head_of_school/staff_detail.php?id=' . (int) $s['staff_id'])) ?>" class="btn btn-outline-primary" title="View Profile"><i class="fa fa-eye"></i></a>
+                <?php if (!($s['role_name'] === 'director' && !in_array($currentRole, ['director', 'system_admin'], true))): ?>
                 <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#editStaffModal<?= (int) $s['staff_id'] ?>" title="Edit Staff"><i class="fa fa-edit"></i></button>
                 <button type="button" class="btn btn-outline-danger" title="Delete Staff"
                   onclick="confirmDeleteStaff(<?= (int) $s['staff_id'] ?>, '<?= e($s['first_name'] . ' ' . $s['last_name']) ?>')">
                   <i class="fa fa-trash"></i>
                 </button>
+                <?php endif; ?>
               </div>
             </td>
           </tr>
@@ -583,4 +660,14 @@ function confirmDeleteStaff(staffId, staffName) {
 }
 </script>
 
+<?php if ($error): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = new bootstrap.Modal(document.getElementById('newStaffModal'));
+  modal.show();
+});
+</script>
+<?php endif; ?>
+
+<?php require APP_ROOT . '/includes/footer.php'; ?>
 <?php require APP_ROOT . '/includes/footer.php'; ?>

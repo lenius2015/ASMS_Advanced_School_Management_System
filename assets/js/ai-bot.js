@@ -11,7 +11,7 @@
   'use strict';
 
   // ====== Configuration ======
-  var API_URL = 'api/ai_bot.php';
+  var API_URL = (window.ASMS_PAGE_CONTEXT && window.ASMS_PAGE_CONTEXT.apiBaseUrl) ? window.ASMS_PAGE_CONTEXT.apiBaseUrl : 'api/ai_bot.php';
   var BOT_NAME = 'ASMS Assistant';
   var WELCOME_MSG = 'Hello! I\'m your ASMS assistant. I can help you analyze this page, answer questions, or guide you through tasks. What would you like help with?';
   var AVATAR_ICON = 'fa-robot';
@@ -275,14 +275,6 @@
     return div.innerHTML;
   }
 
-  // ====== Start ======
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-
   function removeTyping() {
     var typing = document.getElementById('asmsBotTyping');
     if (typing) {
@@ -295,3 +287,11 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
   }
+
+  // ====== Start ======
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

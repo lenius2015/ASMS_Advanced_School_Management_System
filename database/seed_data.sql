@@ -21,6 +21,13 @@ INSERT INTO terms (year_id, term_name, start_date, end_date, is_current) VALUES
 UPDATE system_settings SET setting_value = '1' WHERE setting_key = 'current_academic_year_id';
 UPDATE system_settings SET setting_value = '1' WHERE setting_key = 'current_term_id';
 
+-- School contact details (used by AI chatbot and other modules)
+INSERT INTO system_settings (setting_key, setting_value) VALUES
+('school_phone', '+255 XXX XXX XXX'),
+('school_email', 'info@school.ac.tz'),
+('school_address', 'P.O. Box, Dar es Salaam')
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
+
 -- ---------------------------------------------------------------------
 -- Class levels & a starter class
 -- ---------------------------------------------------------------------

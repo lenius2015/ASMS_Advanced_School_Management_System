@@ -1,19 +1,2 @@
-"" 
-[25-Jun-2026 03:11:13 Africa/Dar_es_Salaam] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'n.read_at' in 'where clause' in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php:142
-Stack trace:
-#0 C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php(142): PDO->query('SELECT r.role_n...')
-#1 {main}
-  thrown in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\communication\notifications.php on line 142
-[25-Jun-2026 13:32:51 Africa/Dar_es_Salaam] PHP Parse error:  syntax error, unexpected token "<", expecting end of file in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\includes\fee_functions.php on line 1224
-[25-Jun-2026 13:32:53 Africa/Dar_es_Salaam] PHP Parse error:  syntax error, unexpected token "<", expecting end of file in C:\xampp\htdocs\ASMS_Advanced_School_Management_System\includes\fee_functions.php on line 1224
-[26-Jun-2026 15:23:37 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "first_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
-[26-Jun-2026 15:23:37 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "last_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
-[26-Jun-2026 15:24:45 Africa/Dar_es_Salaam] PHP Fatal error:  Uncaught TypeError: render_avatar(): Argument #2 ($firstName) must be of type string, null given, called in C:\xampp\htdocs\asms\academic\students.php on line 209 and defined in C:\xampp\htdocs\asms\includes\functions.php:297
-Stack trace:
-#0 C:\xampp\htdocs\asms\academic\students.php(209): render_avatar(NULL, NULL, NULL, 28, 'me-1')
-#1 {main}
-  thrown in C:\xampp\htdocs\asms\includes\functions.php on line 297
-[27-Jun-2026 09:32:20 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "first_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
-[27-Jun-2026 09:32:20 Africa/Dar_es_Salaam] PHP Warning:  Undefined array key "last_name" in C:\xampp\htdocs\asms\director\staff.php on line 194
-[27-Jun-2026 09:33:23 Africa/Dar_es_Salaam] [ASMS] create_staff failed: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'kamugisha@gmail.com' for key 'email'
-[27-Jun-2026 09:33:40 Africa/Dar_es_Salaam] [ASMS] create_staff failed: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'kamugisha@gmail.com' for key 'email'
+[28-Jun-2026 11:17:24 Africa/Dar_es_Salaam] [ASMS] create_staff failed: duplicate_email
+[28-Jun-2026 13:23:01 Africa/Dar_es_Salaam] Password reset error: SQLSTATE[HY093]: Invalid parameter number

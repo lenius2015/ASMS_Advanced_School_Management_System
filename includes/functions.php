@@ -117,8 +117,8 @@ function generate_username(PDO $pdo, string $firstName, string $lastName, string
         $suffix = $attempts;
     } while ($attempts < 100);
 
-    // Ultimate fallback: use random number
-    return $base . random_int(1000, 9999);
+    // Fallback - should never reach here, but just in case
+    return $base . time();
 }
 
 /**

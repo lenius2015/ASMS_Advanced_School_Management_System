@@ -14,7 +14,8 @@ window.ASMS_PAGE_CONTEXT = {
   role: <?= json_encode(current_role()) ?>,
   userId: <?= json_encode(current_user_id()) ?>,
   userName: <?= json_encode($_SESSION['full_name'] ?? 'User') ?>,
-  pageTitle: <?= json_encode($pageTitle ?? '') ?>
+  pageTitle: <?= json_encode($pageTitle ?? '') ?>,
+  apiBaseUrl: <?= json_encode(app_url('/api/ai_bot.php')) ?>
 };
 </script>
 <script src="<?= e(app_url('/assets/js/ai-bot.js')) ?>"></script>

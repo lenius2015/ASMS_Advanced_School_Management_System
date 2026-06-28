@@ -162,6 +162,7 @@ function analyzeTeacherDashboard(PDO $pdo): string
     $h .= '<p class="mt-2"><em>💡 Enter marks, then submit for verification.</em></p>';
     return $h;
 
+}
 function analyzeStudentDashboard(PDO $pdo): string
 {
     $uid = current_user_id();
@@ -264,6 +265,7 @@ function genericPageAnalysis(string $title, ?string $role): string
         . "<p>Viewing <strong>".e($title)."</strong> as <strong>{$roleName}</strong>.</p>"
         . '<p>What would you like to know? Try "Quick Help" or ask a question below.</p>'
         . '<p class="mt-2"><em>💡 Use the sidebar to navigate.</em></p>';
+}
 
 // =========================================================================
 // QUICK HELP & TIPS
@@ -469,7 +471,7 @@ function answerQuestion(string $message, string $url, string $title, ?string $ro
         return '<p>💰 <strong>Fees & Payments</strong></p>'
             . '<p>Invoices per term. Bursar records payments.</p>'
             . '<p>📄 View from the Finance section.</p>'
-            . '<p>⚠️ Outstanding balances may restrict某些 features.</p>';
+            . '<p>⚠️ Outstanding balances may restrict certain features.</p>';
     }
     if (str_contains($msg, 'timetable') || str_contains($msg, 'schedule') || str_contains($msg, 'lesson')) {
         return '<p>📅 <strong>Timetable</strong> shows scheduled lessons per class.</p>'
@@ -498,6 +500,7 @@ function answerQuestion(string $message, string $url, string $title, ?string $ro
     $rn = $role ? ucfirst(str_replace('_', ' ', $role)) : 'User';
     return '<p>I\'m not sure about "<strong>' . e($message) . '</strong>", <strong>' . e($_SESSION['full_name']??$rn) . '</strong>.</p>'
         . '<p>Try the quick action buttons above, or ask about: attendance, marks, fees, timetable, registration.</p>';
+}
 
 // =========================================================================
 // IMPORTANT CONTACTS

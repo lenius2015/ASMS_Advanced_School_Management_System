@@ -344,14 +344,3 @@ function setAll(status) {
 </script>
 
 <?php require APP_ROOT . '/includes/footer.php'; ?>
-</write_to_file>
-<task_progress>
-- [x] Create database migration for lesson_attendance tables
-- [x] Run migration
-- [x] Update teacher/lesson_attendance.php - link to timetable slots, add topic/notes
-- [ ] Create academic/lesson_reports.php - per-student lesson reports with filters
-- [ ] Update teacher dashboard with recent lesson widget
-- [ ] Update sidebar navigation for both academic and teacher
-- [ ] Test everything
-</task_progress>
-</write_to_file>
