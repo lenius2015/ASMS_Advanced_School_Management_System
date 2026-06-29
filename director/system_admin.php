@@ -5,7 +5,7 @@
  * security policy toggles.
  */
 require_once __DIR__ . '/../config/config.php';
-require_role(['director', 'system_admin', 'system_admin']);
+require_role(['director', 'system_admin']);
 
 $pdo = get_db_connection();
 

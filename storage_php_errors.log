@@ -1,2 +1,15 @@
 [28-Jun-2026 11:17:24 Africa/Dar_es_Salaam] [ASMS] create_staff failed: duplicate_email
 [28-Jun-2026 13:23:01 Africa/Dar_es_Salaam] Password reset error: SQLSTATE[HY093]: Invalid parameter number
+[29-Jun-2026 01:34:48 Africa/Dar_es_Salaam] [ASMS] create_department: SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'finance' for key 'department_name'
+[29-Jun-2026 01:40:02 Africa/Dar_es_Salaam] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'asms_db.student_medical_records' doesn't exist in C:\xampp\htdocs\asms\includes\functions.php:435
+Stack trace:
+#0 C:\xampp\htdocs\asms\includes\functions.php(435): PDO->prepare('SELECT * FROM s...')
+#1 C:\xampp\htdocs\asms\director\student_profile.php(80): get_student_medical_record(Object(PDO), 1)
+#2 {main}
+  thrown in C:\xampp\htdocs\asms\includes\functions.php on line 435
+[29-Jun-2026 01:40:04 Africa/Dar_es_Salaam] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'asms_db.student_medical_records' doesn't exist in C:\xampp\htdocs\asms\includes\functions.php:435
+Stack trace:
+#0 C:\xampp\htdocs\asms\includes\functions.php(435): PDO->prepare('SELECT * FROM s...')
+#1 C:\xampp\htdocs\asms\director\student_profile.php(80): get_student_medical_record(Object(PDO), 1)
+#2 {main}
+  thrown in C:\xampp\htdocs\asms\includes\functions.php on line 435

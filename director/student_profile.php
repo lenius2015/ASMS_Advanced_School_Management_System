@@ -76,11 +76,34 @@ $delReqStmt = $pdo->prepare("SELECT * FROM deletion_requests WHERE student_id = 
 $delReqStmt->execute(['sid' => $studentId]);
 $deletionRequest = $delReqStmt->fetch();
 
+// Get medical record and missing docs
+$medical = get_student_medical_record($pdo, $studentId);
+$regStatus = registration_completeness($pdo, $studentId);
+$missingDocs = get_missing_required_documents($pdo, $studentId);
+
 $pageTitle = 'Student Profile';
 require APP_ROOT . '/includes/header.php';
 ?>
 
 <a href="javascript:history.back()" class="small mb-3 d-inline-block"><i class="fa fa-arrow-left me-1"></i> Back</a>
+
+<?php if ($regStatus['level'] !== 'complete' && !empty($missingDocs)): ?>
+<div class="alert alert-danger alert-dismissible fade show">
+  <div class="d-flex align-items-start gap-2">
+    <i class="fa fa-exclamation-triangle fa-2x mt-1"></i>
+    <div>
+      <h6 class="alert-heading mb-1"><i class="fa fa-times-circle me-1"></i> Incomplete Registration!</h6>
+      <p class="mb-1 small">This student is missing the following required documents. Registration will remain incomplete until all are uploaded.</p>
+      <ul class="mb-0 small">
+        <?php foreach ($missingDocs as $key => $label): ?>
+          <li><strong><?= e($label) ?></strong> <a href="#" class="text-white" onclick="document.querySelector('[data-bs-target=\'#uploadDocModal\']')?.click();return false;">(upload now)</a></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
 
 <div class="card mb-4">
   <div class="card-body d-flex flex-wrap gap-4 align-items-center">

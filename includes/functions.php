@@ -333,7 +333,8 @@ function get_student_documents(PDO $pdo, int $studentId): array
 
 /**
  * Determine registration completeness status for a student.
- * Returns an array with 'level' (complete|incomplete) and 'badge' HTML.
+ * Returns an array with 'level' (complete|incomplete|pending) and 'badge' HTML.
+ * Required documents: birth_certificate, medical_checkup, nida_card, passport_copy, vaccination_card
  */
 function registration_completeness(PDO $pdo, int $studentId): array
 {
@@ -354,20 +355,29 @@ function registration_completeness(PDO $pdo, int $studentId): array
         ];
     }
 
-    // Check for required documents
-    $reqStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM student_documents
-         WHERE student_id = :sid AND document_type IN ('birth_certificate', 'medical_checkup')"
-    );
-    $reqStmt->execute(['sid' => $studentId]);
-    $requiredCount = (int) $reqStmt->fetchColumn();
+    // Required document types for full registration
+    $requiredTypes = ['birth_certificate', 'medical_checkup', 'nida_card', 'passport_copy', 'vaccination_card'];
+    $placeholders = implode(',', array_fill(0, count($requiredTypes), '?'));
 
-    // Also count any documents at all
-    $anyStmt = $pdo->prepare("SELECT COUNT(*) FROM student_documents WHERE student_id = :sid");
-    $anyStmt->execute(['sid' => $studentId]);
+    $reqStmt = $pdo->prepare(
+        "SELECT document_type, COUNT(*) as cnt FROM student_documents
+         WHERE student_id = ? AND document_type IN ($placeholders)
+         GROUP BY document_type"
+    );
+    $reqStmt->execute(array_merge([$studentId], $requiredTypes));
+    $foundDocs = $reqStmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    $missingCount = count(array_diff($requiredTypes, $foundDocs));
+
+    // Count any documents at all
+    $anyStmt = $pdo->prepare("SELECT COUNT(*) FROM student_documents WHERE student_id = ?");
+    $anyStmt->execute([$studentId]);
     $totalDocs = (int) $anyStmt->fetchColumn();
 
-    if ($requiredCount >= 2) {
+    if ($missingCount === 0) {
+        // Auto-mark complete if all required docs are present
+        $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = ?')
+            ->execute([$studentId]);
         return [
             'level' => 'complete',
             'badge' => '<span class="badge bg-success"><i class="fa fa-check-circle me-1"></i>Complete</span>'
@@ -375,7 +385,7 @@ function registration_completeness(PDO $pdo, int $studentId): array
     } elseif ($totalDocs > 0) {
         return [
             'level' => 'pending',
-            'badge' => '<span class="badge bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pending</span>'
+            'badge' => '<span class="badge bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pending (' . $missingCount . ' missing)</span>'
         ];
     }
 
@@ -383,6 +393,49 @@ function registration_completeness(PDO $pdo, int $studentId): array
         'level' => 'incomplete',
         'badge' => '<span class="badge bg-danger"><i class="fa fa-exclamation-circle me-1"></i>Incomplete</span>'
     ];
+}
+
+/**
+ * Get missing required documents for a student.
+ * @return array List of missing document type labels
+ */
+function get_missing_required_documents(PDO $pdo, int $studentId): array
+{
+    $requiredTypes = [
+        'birth_certificate' => 'Birth Certificate',
+        'medical_checkup'   => 'Medical Checkup Form',
+        'nida_card'         => 'NIDA Card',
+        'passport_copy'     => 'Passport Copy',
+        'vaccination_card'  => 'Vaccination Card',
+    ];
+
+    $placeholders = implode(',', array_fill(0, count($requiredTypes), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT DISTINCT document_type FROM student_documents
+         WHERE student_id = ? AND document_type IN ($placeholders)"
+    );
+    $stmt->execute(array_merge([$studentId], array_keys($requiredTypes)));
+    $foundTypes = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+
+    $missing = [];
+    foreach ($requiredTypes as $key => $label) {
+        if (!in_array($key, $foundTypes)) {
+            $missing[$key] = $label;
+        }
+    }
+    return $missing;
+}
+
+/**
+ * Get or create medical record for a student.
+ * @return array
+ */
+function get_student_medical_record(PDO $pdo, int $studentId): array
+{
+    $stmt = $pdo->prepare("SELECT * FROM student_medical_records WHERE student_id = ?");
+    $stmt->execute([$studentId]);
+    $record = $stmt->fetch();
+    return $record ?: [];
 }
 
 /**

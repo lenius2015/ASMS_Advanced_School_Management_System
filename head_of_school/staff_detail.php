@@ -44,18 +44,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     $educationLevel = trim($_POST['education_level'] ?? '');
     $status = $_POST['status'] ?? 'active';
 
+    $nidaNumber = trim($_POST['nida_number'] ?? '');
+    $passportNumber = trim($_POST['passport_number'] ?? '');
+    $passportExpiry = $_POST['passport_expiry'] ?? null;
+    $bankName = trim($_POST['bank_name'] ?? '');
+    $bankAccount = trim($_POST['bank_account_no'] ?? '');
+    $bankBranch = trim($_POST['bank_branch'] ?? '');
+    $tinNumber = trim($_POST['tin_number'] ?? '');
+    $nssfNumber = trim($_POST['nssf_number'] ?? '');
+
     if ($jobTitle === '') {
         flash_set('error', 'Job title is required.');
     } else {
         try {
             $pdo->prepare(
                 'UPDATE staff SET department_id = :dept, job_title = :title, employment_type = :etype,
-                 date_hired = :hired, basic_salary = :salary, education_level = :edu, status = :status
+                 date_hired = :hired, basic_salary = :salary, education_level = :edu, status = :status,
+                 nida_number = :nida, passport_number = :passport, passport_expiry = :passport_expiry,
+                 bank_name = :bank, bank_account_no = :bank_acct, bank_branch = :bank_branch,
+                 tin_number = :tin, nssf_number = :nssf
                  WHERE staff_id = :sid'
             )->execute([
                 'dept' => $departmentId, 'title' => $jobTitle, 'etype' => $employmentType,
                 'hired' => $dateHired ?: null, 'salary' => $basicSalary, 'edu' => $educationLevel ?: null,
                 'status' => $status, 'sid' => $staffId,
+                'nida' => $nidaNumber ?: null, 'passport' => $passportNumber ?: null,
+                'passport_expiry' => $passportExpiry, 'bank' => $bankName ?: null,
+                'bank_acct' => $bankAccount ?: null, 'bank_branch' => $bankBranch ?: null,
+                'tin' => $tinNumber ?: null, 'nssf' => $nssfNumber ?: null,
             ]);
             audit_log('edit_staff', 'staff_management', 'staff', $staffId, "Updated staff details from profile page");
             flash_set('success', 'Staff details updated successfully.');
@@ -284,6 +300,42 @@ require APP_ROOT . '/includes/header.php';
                   <option value="<?= $opt ?>" <?= $staff['education_level'] === $opt ? 'selected' : '' ?>><?= $opt ?></option>
                 <?php endforeach; ?>
               </select>
+            </div>
+          </div>
+          <hr>
+          <h6 class="text-muted small text-uppercase mb-2">Identity & Bank Details</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">NIDA Number</label>
+              <input type="text" name="nida_number" class="form-control" value="<?= e($staff['nida_number'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Passport Number</label>
+              <input type="text" name="passport_number" class="form-control" value="<?= e($staff['passport_number'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Passport Expiry</label>
+              <input type="date" name="passport_expiry" class="form-control" value="<?= e($staff['passport_expiry'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Bank Name</label>
+              <input type="text" name="bank_name" class="form-control" value="<?= e($staff['bank_name'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Account No</label>
+              <input type="text" name="bank_account_no" class="form-control" value="<?= e($staff['bank_account_no'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Bank Branch</label>
+              <input type="text" name="bank_branch" class="form-control" value="<?= e($staff['bank_branch'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">TIN Number</label>
+              <input type="text" name="tin_number" class="form-control" value="<?= e($staff['tin_number'] ?? '') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">NSSF Number</label>
+              <input type="text" name="nssf_number" class="form-control" value="<?= e($staff['nssf_number'] ?? '') ?>">
             </div>
           </div>
           <div class="mt-3">

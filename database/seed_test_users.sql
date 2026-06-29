@@ -25,6 +25,18 @@ FROM users u WHERE u.username = 'director@omunju.ac.tz'
 AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = u.user_id);
 
 -- =====================================================================
+-- 1b. SYSTEM ADMINISTRATOR (login: admin@omunju.ac.tz / test1234)
+-- =====================================================================
+INSERT IGNORE INTO users (uuid, role_id, username, email, phone, password_hash, first_name, last_name, gender, is_active, must_change_password)
+SELECT UUID(), 11, 'admin@omunju.ac.tz', 'admin@omunju.ac.tz', '+255712100011', '$2y$10$CEV.5FwW.Iv0w6bCiISnt.W0QpD2rfiYNWBLGuDWtUmz6sXKtABi6', 'System', 'Admin', 'male', 1, 0
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin@omunju.ac.tz');
+
+INSERT IGNORE INTO staff (user_id, staff_no, department_id, job_title, employment_type, date_hired, status)
+SELECT u.user_id, 'STF-2026-0009', (SELECT department_id FROM departments ORDER BY department_id LIMIT 1), 'System Administrator', 'full_time', '2024-01-01', 'active'
+FROM users u WHERE u.username = 'admin@omunju.ac.tz'
+AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = u.user_id);
+
+-- =====================================================================
 -- 2. HEAD OF SCHOOL (login: headofschool@omunju.ac.tz / test1234)
 -- =====================================================================
 INSERT IGNORE INTO users (uuid, role_id, username, email, phone, password_hash, first_name, last_name, gender, is_active, must_change_password)

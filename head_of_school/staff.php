@@ -670,4 +670,3 @@ document.addEventListener('DOMContentLoaded', function() {
 <?php endif; ?>
 
 <?php require APP_ROOT . '/includes/footer.php'; ?>
-<?php require APP_ROOT . '/includes/footer.php'; ?>

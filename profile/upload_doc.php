@@ -81,17 +81,19 @@ try {
         'uid'   => $currentUserId,
     ]);
 
-    // Check if registration is now complete (has both birth_certificate and medical_checkup)
+    // Check if registration is now complete (all 5 required documents)
+    $requiredTypes = ['birth_certificate', 'medical_checkup', 'nida_card', 'passport_copy', 'vaccination_card'];
+    $placeholders = implode(',', array_fill(0, count($requiredTypes), '?'));
     $reqStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM student_documents
-         WHERE student_id = :sid AND document_type IN ('birth_certificate', 'medical_checkup')"
+        "SELECT COUNT(DISTINCT document_type) FROM student_documents
+         WHERE student_id = ? AND document_type IN ($placeholders)"
     );
-    $reqStmt->execute(['sid' => $studentId]);
-    $requiredCount = (int) $reqStmt->fetchColumn();
+    $reqStmt->execute(array_merge([$studentId], $requiredTypes));
+    $foundCount = (int) $reqStmt->fetchColumn();
 
-    if ($requiredCount >= 2) {
-        $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = :sid')
-            ->execute(['sid' => $studentId]);
+    if ($foundCount >= count($requiredTypes)) {
+        $pdo->prepare('UPDATE students SET registration_complete = 1 WHERE student_id = ?')
+            ->execute([$studentId]);
     }
 
     audit_log('upload_student_document', 'student_management', 'student_documents', (int) $pdo->lastInsertId(), "Uploaded {$docType}: {$docName}");

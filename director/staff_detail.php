@@ -282,6 +282,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         'years_of_experience' => (int) ($_POST['years_of_experience'] ?? 0),
         'marital_status' => $_POST['marital_status'] ?: null,
         'religion' => trim($_POST['religion'] ?? ''),
+        'nida_number' => trim($_POST['nida_number'] ?? ''),
+        'passport_number' => trim($_POST['passport_number'] ?? ''),
+        'passport_expiry' => $_POST['passport_expiry'] ?: null,
         'bank_name' => trim($_POST['bank_name'] ?? ''),
         'bank_account_no' => trim($_POST['bank_account_no'] ?? ''),
         'bank_branch' => trim($_POST['bank_branch'] ?? ''),
@@ -871,6 +874,9 @@ $badgeStatus = function($status): string {
             </div>
             <div class="tab-pane fade" id="editBank">
               <div class="row g-2">
+                <div class="col-md-6"><label class="form-label">NIDA Number</label><input type="text" name="nida_number" class="form-control" value="<?= e($staff['nida_number'] ?? '') ?>"></div>
+                <div class="col-md-6"><label class="form-label">Passport Number</label><input type="text" name="passport_number" class="form-control" value="<?= e($staff['passport_number'] ?? '') ?>"></div>
+                <div class="col-md-6"><label class="form-label">Passport Expiry</label><input type="date" name="passport_expiry" class="form-control" value="<?= e($staff['passport_expiry'] ?? '') ?>"></div>
                 <div class="col-md-6"><label class="form-label">Bank Name</label><input type="text" name="bank_name" class="form-control" value="<?= e($staff['bank_name'] ?? '') ?>"></div>
                 <div class="col-md-6"><label class="form-label">Account No</label><input type="text" name="bank_account_no" class="form-control" value="<?= e($staff['bank_account_no'] ?? '') ?>"></div>
                 <div class="col-md-6"><label class="form-label">Bank Branch</label><input type="text" name="bank_branch" class="form-control" value="<?= e($staff['bank_branch'] ?? '') ?>"></div>

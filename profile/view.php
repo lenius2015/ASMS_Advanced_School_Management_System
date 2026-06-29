@@ -119,7 +119,26 @@ require APP_ROOT . '/includes/header.php';
         </div>
       </div>
 
-      <?php if ($student): ?>
+  <?php if ($student): ?>
+        <!-- Missing Documents Warning -->
+        <?php if ($regStatus && $regStatus['level'] !== 'complete'): ?>
+          <?php $missingDocs = get_missing_required_documents($pdo, (int) $student['student_id']); ?>
+          <div class="alert alert-danger mb-4">
+            <div class="d-flex align-items-start gap-2">
+              <i class="fa fa-exclamation-triangle fa-2x mt-1"></i>
+              <div>
+                <h6 class="alert-heading mb-1">Incomplete Registration!</h6>
+                <p class="mb-1 small">The following required documents are missing. Please upload them to complete the registration.</p>
+                <ul class="mb-0 small">
+                  <?php foreach ($missingDocs as $key => $label): ?>
+                    <li><strong><?= e($label) ?></strong></li>
+                  <?php endforeach; ?>
+                </ul>
+              </div>
+            </div>
+          </div>
+        <?php endif; ?>
+
         <!-- Student Details -->
         <div class="card mb-4">
           <div class="card-header">
@@ -144,6 +163,81 @@ require APP_ROOT . '/includes/header.php';
                 <p class="fw-semibold mb-0"><span class="badge badge-status-<?= e($student['status']) ?>"><?= e(ucfirst($student['status'])) ?></span></p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Identity & Legal Documents Section -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="fa fa-id-card me-2"></i>Identity & Legal Documents</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="text-muted small text-uppercase">NIDA Number</label>
+                <p class="fw-semibold mb-0"><?= e($student['nida_number'] ?? '<span class="text-muted">Not set</span>') ?></p>
+              </div>
+              <div class="col-md-6">
+                <label class="text-muted small text-uppercase">Passport Number</label>
+                <p class="fw-semibold mb-0"><?= e($student['passport_number'] ?? '<span class="text-muted">Not set</span>') ?></p>
+              </div>
+              <div class="col-md-6">
+                <label class="text-muted small text-uppercase">Passport Expiry</label>
+                <p class="fw-semibold mb-0"><?= format_date($student['passport_expiry'] ?? null) ?></p>
+              </div>
+              <div class="col-md-6">
+                <label class="text-muted small text-uppercase">Passport Photo</label>
+                <p class="fw-semibold mb-0">
+                  <?php if (!empty($student['passport_photo_path']) && file_exists(APP_ROOT . '/' . $student['passport_photo_path'])): ?>
+                    <a href="<?= e(app_url($student['passport_photo_path'])) ?>" target="_blank" class="btn btn-sm btn-outline-primary">
+                      <i class="fa fa-eye me-1"></i> View Photo
+                    </a>
+                  <?php else: ?>
+                    <span class="text-muted">Not uploaded</span>
+                  <?php endif; ?>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Medical Information -->
+        <?php $medical = get_student_medical_record($pdo, (int) $student['student_id']); ?>
+        <div class="card mb-4">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="fa fa-notes-medical me-2"></i>Medical Information</h5>
+          </div>
+          <div class="card-body">
+            <?php if (!empty($medical)): ?>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Blood Group</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['blood_group'] ?: $student['blood_group'] ?: '-') ?></p>
+                </div>
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Allergies</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['allergies'] ?: 'None recorded') ?></p>
+                </div>
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Chronic Conditions</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['chronic_conditions'] ?: 'None recorded') ?></p>
+                </div>
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Current Medications</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['medications'] ?: 'None recorded') ?></p>
+                </div>
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Doctor</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['doctor_name'] ?: '-') ?> <?= $medical['doctor_phone'] ? '(' . e($medical['doctor_phone']) . ')' : '' ?></p>
+                </div>
+                <div class="col-md-6">
+                  <label class="text-muted small text-uppercase">Health Insurance</label>
+                  <p class="fw-semibold mb-0"><?= e($medical['health_insurance_provider'] ?: '-') ?> <?= $medical['health_insurance_no'] ? '(' . e($medical['health_insurance_no']) . ')' : '' ?></p>
+                </div>
+              </div>
+            <?php else: ?>
+              <p class="text-muted mb-0"><i class="fa fa-info-circle me-1"></i> No medical records recorded yet.</p>
+            <?php endif; ?>
           </div>
         </div>
 
@@ -206,14 +300,20 @@ require APP_ROOT . '/includes/header.php';
           <div class="mb-3">
             <label class="form-label">Document Type <span class="required-mark">*</span></label>
             <select name="document_type" class="form-select" required>
-              <option value="birth_certificate">Birth Certificate</option>
-              <option value="medical_checkup">Medical Checkup Form</option>
+              <option value="birth_certificate">✅ Birth Certificate (Required)</option>
+              <option value="medical_checkup">✅ Medical Checkup Form (Required)</option>
+              <option value="nida_card">✅ NIDA Card (Required)</option>
+              <option value="passport_copy">✅ Passport Copy (Required)</option>
+              <option value="vaccination_card">✅ Vaccination Card (Required)</option>
               <option value="transfer_slip">Transfer Slip</option>
               <option value="previous_results">Previous Results</option>
               <option value="passport_photo">Passport Photo</option>
               <option value="guardian_id">Guardian ID</option>
+              <option value="parent_consent">Parent Consent Form</option>
+              <option value="fee_agreement">Fee Agreement</option>
               <option value="other">Other</option>
             </select>
+            <div class="form-text mt-1">✅ Marked documents are required for complete registration.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Document Name <span class="required-mark">*</span></label>
